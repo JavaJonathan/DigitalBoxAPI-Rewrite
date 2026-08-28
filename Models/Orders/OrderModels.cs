@@ -37,6 +37,7 @@ public class OrderListItemModel
     public string ParseStatus { get; set; } = nameof(Entities.ParseStatus.Parsed);
     public int LineItemCount { get; set; }
     public int TotalQuantity { get; set; }
+    public string? FirstItemTitle { get; set; }
     public string? ActionedBy { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? ShippedAt { get; set; }
@@ -52,6 +53,7 @@ public class OrderListItemModel
         ParseStatus = o.ParseStatus.ToString(),
         LineItemCount = o.LineItems.Count,
         TotalQuantity = o.LineItems.Sum(li => li.Quantity),
+        FirstItemTitle = o.LineItems.OrderBy(li => li.SortOrder).Select(li => li.Title).FirstOrDefault(),
         ActionedBy = o.ActionedBy,
         CreatedAt = o.CreatedAt,
         ShippedAt = o.ShippedAt,
