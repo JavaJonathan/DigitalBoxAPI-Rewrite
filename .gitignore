@@ -1,0 +1,31 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+
+# Local config & secrets — never commit
+appsettings.*.local.json
+*.env
+.env
+.env.*
+
+# EF migration bundles
+efbundle
+efbundle.exe
+
+# GitHub Actions workflow — kept out of git because pushing .github/workflows/*.yml
+# requires the `workflow` OAuth scope, which this machine's cached git credential lacks.
+# Add/edit it directly through the GitHub web UI instead. The file lives on disk at
+# .github/workflows/deploy-api.yml as the source to paste.
+/.github/workflows/
+
+# IDE
+.vs/
+.idea/
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,7 @@
+# Reverse proxy + automatic HTTPS for the DigitalBox API.
+# Replace the site address with the real api. domain once DNS is pointed at the instance's
+# Elastic IP. A *.sslip.io host (e.g. <dashed-ip>.sslip.io) works as a stopgap; Let's Encrypt
+# will NOT issue for *.amazonaws.com hostnames.
+api.digitalbox.example.com {
+	reverse_proxy localhost:8080
+}

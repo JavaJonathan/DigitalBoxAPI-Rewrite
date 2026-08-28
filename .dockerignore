@@ -1,0 +1,9 @@
+bin/
+obj/
+.vs/
+.git/
+.github/
+**/appsettings.*.local.json
+**/*.env
+Caddyfile
+README.md
