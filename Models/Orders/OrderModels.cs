@@ -38,6 +38,8 @@ public class OrderListItemModel
     public int LineItemCount { get; set; }
     public int TotalQuantity { get; set; }
     public string? FirstItemTitle { get; set; }
+    public bool IsPriority { get; set; }
+    public string? Notes { get; set; }
     public string? ActionedBy { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? ShippedAt { get; set; }
@@ -54,6 +56,8 @@ public class OrderListItemModel
         LineItemCount = o.LineItems.Count,
         TotalQuantity = o.LineItems.Sum(li => li.Quantity),
         FirstItemTitle = o.LineItems.OrderBy(li => li.SortOrder).Select(li => li.Title).FirstOrDefault(),
+        IsPriority = o.IsPriority,
+        Notes = o.Notes,
         ActionedBy = o.ActionedBy,
         CreatedAt = o.CreatedAt,
         ShippedAt = o.ShippedAt,
@@ -80,6 +84,9 @@ public class OrderDetailModel : OrderListItemModel
             ParseStatus = baseModel.ParseStatus,
             LineItemCount = baseModel.LineItemCount,
             TotalQuantity = baseModel.TotalQuantity,
+            FirstItemTitle = baseModel.FirstItemTitle,
+            IsPriority = baseModel.IsPriority,
+            Notes = baseModel.Notes,
             ActionedBy = baseModel.ActionedBy,
             CreatedAt = baseModel.CreatedAt,
             ShippedAt = baseModel.ShippedAt,
@@ -180,4 +187,15 @@ public class UpdateLineItemModel
 
     [MaxLength(128)]
     public string? Sku { get; set; }
+}
+
+public class SetPriorityRequestModel
+{
+    public bool IsPriority { get; set; }
+}
+
+public class SetNotesRequestModel
+{
+    [MaxLength(500)]
+    public string? Notes { get; set; }
 }

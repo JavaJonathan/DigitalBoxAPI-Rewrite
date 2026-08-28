@@ -29,9 +29,12 @@ public class ApplicationDbContext : DbContext
             entity.Property(o => o.ParseStatus).HasConversion<string>().HasMaxLength(32);
             entity.Property(o => o.SearchText).HasColumnType("text");
             entity.Property(o => o.ActionedBy).HasMaxLength(120);
+            entity.Property(o => o.Notes).HasColumnType("text");
 
-            entity.HasIndex(o => o.Status);
             entity.HasIndex(o => o.OrderNumber);
+            // Serves the queue's "open, priority first" ordering and the ?priority= filter;
+            // Postgres also uses this for Status-only lookups via the leading column.
+            entity.HasIndex(o => new { o.Status, o.IsPriority });
             entity.HasIndex(o => o.SearchText)
                 .HasMethod("gin")
                 .HasOperators("gin_trgm_ops");
