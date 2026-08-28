@@ -28,7 +28,7 @@ public static class SearchText
         return sb.ToString();
     }
 
-    public static string Build(string orderNumber, IEnumerable<OrderLineItem> lineItems)
+    public static string Build(string orderNumber, IEnumerable<OrderLineItem> lineItems, string? notes = null)
     {
         var sb = new StringBuilder();
         sb.Append(Normalize(orderNumber));
@@ -38,6 +38,7 @@ public static class SearchText
             sb.Append(Normalize(li.Sku));
         }
 
+        sb.Append(Normalize(notes));
         return sb.ToString();
     }
 }

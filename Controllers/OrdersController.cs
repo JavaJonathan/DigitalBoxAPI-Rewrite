@@ -103,6 +103,7 @@ public class OrdersController : ControllerBase
     public async Task<ActionResult<PagedResult<OrderListItemModel>>> List(
         [FromQuery] string? q,
         [FromQuery] string? marketplace,
+        [FromQuery] bool? priority,
         [FromQuery] string status = nameof(OrderStatus.Open),
         [FromQuery] string sort = "shipDate",
         [FromQuery] int page = 1,
@@ -127,6 +128,11 @@ public class OrdersController : ControllerBase
             query = query.Where(o => o.Marketplace == marketplaceEnum);
         }
 
+        if (priority == true)
+        {
+            query = query.Where(o => o.IsPriority);
+        }
+
         if (!string.IsNullOrWhiteSpace(q))
         {
             var normalized = SearchText.Normalize(q);
@@ -136,16 +142,35 @@ public class OrdersController : ControllerBase
             }
         }
 
-        query = sort.ToLowerInvariant() switch
+        var sortKey = sort.ToLowerInvariant();
+        IOrderedQueryable<Order> ordered;
+        if (statusEnum == OrderStatus.Open)
         {
-            "title" => query
-                .OrderBy(o => o.LineItems.OrderBy(li => li.SortOrder).Select(li => li.Title).FirstOrDefault())
-                .ThenBy(o => o.ShipDate ?? DateOnly.MaxValue),
-            "created" => query.OrderByDescending(o => o.CreatedAt),
-            _ => statusEnum == OrderStatus.Open
-                ? query.OrderBy(o => o.ShipDate ?? DateOnly.MaxValue).ThenBy(o => o.CreatedAt)
-                : query.OrderByDescending(o => o.ShippedAt ?? o.CancelledAt ?? o.UpdatedAt)
-        };
+            // Priority orders always lead the Open queue, regardless of the chosen sort.
+            var byPriority = query.OrderByDescending(o => o.IsPriority);
+            ordered = sortKey switch
+            {
+                "title" => byPriority
+                    .ThenBy(o => o.LineItems.OrderBy(li => li.SortOrder).Select(li => li.Title).FirstOrDefault())
+                    .ThenBy(o => o.ShipDate ?? DateOnly.MaxValue),
+                "created" => byPriority.ThenByDescending(o => o.CreatedAt),
+                _ => byPriority.ThenBy(o => o.ShipDate ?? DateOnly.MaxValue).ThenBy(o => o.CreatedAt),
+            };
+        }
+        else
+        {
+            ordered = sortKey switch
+            {
+                "title" => query
+                    .OrderBy(o => o.LineItems.OrderBy(li => li.SortOrder).Select(li => li.Title).FirstOrDefault())
+                    .ThenBy(o => o.ShipDate ?? DateOnly.MaxValue),
+                "created" => query.OrderByDescending(o => o.CreatedAt),
+                _ => query.OrderByDescending(o => o.ShippedAt ?? o.CancelledAt ?? o.UpdatedAt),
+            };
+        }
+
+        // Deterministic tiebreaker so pagination can't duplicate or skip rows on a tie.
+        query = ordered.ThenBy(o => o.Id);
 
         var total = await query.CountAsync(ct);
         var items = await query
@@ -233,7 +258,7 @@ public class OrdersController : ControllerBase
             });
         }
 
-        order.SearchText = SearchText.Build(order.OrderNumber, order.LineItems);
+        order.SearchText = SearchText.Build(order.OrderNumber, order.LineItems, order.Notes);
         order.ParseStatus = ParseStatus.Parsed;
         order.UpdatedAt = DateTime.UtcNow;
         order.Events.Add(new OrderEvent
@@ -247,6 +272,49 @@ public class OrdersController : ControllerBase
 
         var reloaded = await LoadDetail(id, ct);
         return Ok(OrderDetailModel.From(reloaded!));
+    }
+
+    /// <summary>Toggle the urgent-triage flag. Works in any status; no timeline event (too noisy).</summary>
+    [HttpPost("{id:guid}/priority")]
+    public async Task<ActionResult<OrderDetailModel>> SetPriority(
+        Guid id, SetPriorityRequestModel request, CancellationToken ct)
+    {
+        var order = await LoadDetail(id, ct);
+        if (order is null)
+        {
+            return NotFound();
+        }
+
+        order.IsPriority = request.IsPriority;
+        order.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(OrderDetailModel.From(order));
+    }
+
+    /// <summary>Set or clear the operator note. Editable in any status (unlike the full edit, which 409s).</summary>
+    [HttpPut("{id:guid}/notes")]
+    public async Task<ActionResult<OrderDetailModel>> SetNotes(
+        Guid id, SetNotesRequestModel request, CancellationToken ct)
+    {
+        var order = await _db.Orders
+            .Include(o => o.LineItems)
+            .Include(o => o.Events)
+            .Include(o => o.PackingSlip)
+            .FirstOrDefaultAsync(o => o.Id == id, ct);
+
+        if (order is null)
+        {
+            return NotFound();
+        }
+
+        var notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
+        order.Notes = notes;
+        order.SearchText = SearchText.Build(order.OrderNumber, order.LineItems, notes);
+        order.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(OrderDetailModel.From(order));
     }
 
     [HttpPost("ship")]
@@ -312,6 +380,64 @@ public class OrdersController : ControllerBase
         result.Message = result.SkippedIds.Count == 0
             ? $"{result.Updated} order(s) {verb}."
             : $"{result.Updated} order(s) {verb}; {result.SkippedIds.Count} skipped (not open or not found).";
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Reopen shipped or cancelled orders back to the Open queue. Direction is inferred from
+    /// current status; priority and notes survive (unlike the original, which lost them).
+    /// </summary>
+    [HttpPost("undo")]
+    public async Task<ActionResult<ActionResultModel>> Undo(ShipOrCancelRequestModel request, CancellationToken ct)
+    {
+        var actor = request.ActionedBy.Trim();
+        if (actor.Length == 0)
+        {
+            return BadRequest(new { message = "Your name is required." });
+        }
+
+        var ids = request.OrderIds.Distinct().ToList();
+        var orders = await _db.Orders
+            .Include(o => o.Events)
+            .Where(o => ids.Contains(o.Id))
+            .ToListAsync(ct);
+
+        var result = new ActionResultModel();
+        var now = DateTime.UtcNow;
+
+        foreach (var id in ids)
+        {
+            var order = orders.FirstOrDefault(o => o.Id == id);
+            if (order is null || order.Status == OrderStatus.Open)
+            {
+                result.SkippedIds.Add(id);
+                continue;
+            }
+
+            var from = order.Status;
+            order.Status = OrderStatus.Open;
+            order.ActionedBy = null;
+            order.ShippedAt = null;
+            order.CancelledAt = null;
+            order.UpdatedAt = now;
+
+            order.Events.Add(new OrderEvent
+            {
+                Type = OrderEventType.Reopened,
+                Actor = actor,
+                Detail = from == OrderStatus.Shipped ? "Reopened from shipped." : "Reopened from cancelled.",
+                OccurredAt = now
+            });
+
+            result.Updated++;
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        result.Message = result.SkippedIds.Count == 0
+            ? $"{result.Updated} order(s) reopened."
+            : $"{result.Updated} order(s) reopened; {result.SkippedIds.Count} skipped (already open or not found).";
 
         return Ok(result);
     }

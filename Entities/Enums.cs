@@ -34,5 +34,8 @@ public enum OrderEventType
     Created = 0,
     Shipped,
     Cancelled,
-    Edited
+    Edited,
+
+    /// <summary>A shipped or cancelled order was undone back to Open.</summary>
+    Reopened
 }
