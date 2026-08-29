@@ -36,11 +36,12 @@ A running local PostgreSQL, plus two `dotnet user-secrets` values (never committ
 
 ```bash
 dotnet user-secrets set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=DigitalBox;Username=postgres;Password=<yours>"
-dotnet user-secrets set "Jwt:Key" "<random 32+ byte string>"
+dotnet user-secrets set "Jwt:Key" "<random 32+ byte string>"   # >= 32 bytes: startup throws otherwise
 ```
 
 Then `dotnet ef database update` and `dotnet run -- create-admin <user> "<name>"` to get a login.
-`Jwt:AccessTokenHours` defaults to 8.
+`Jwt:AccessTokenHours` defaults to 8. `Program.cs` refuses to start if `Jwt:Key` decodes to
+fewer than 32 bytes (HS256 is only as strong as this key) — `openssl rand -base64 48` for prod.
 
 ## Architecture
 
@@ -125,13 +126,22 @@ blank on-hand → 0); `Services/InventoryCsv.cs` is the CsvHelper wrapper. Synch
 **CORS** is a named policy; origin from `Cors:AllowedOrigin` (env `Cors__AllowedOrigin`),
 falls back to the Vite dev origin `http://localhost:5173`.
 
+**Reverse proxy** — `Program.cs` runs `UseForwardedHeaders` first so `RemoteIpAddress` (used by
+the login throttle + all auth logging) is the real client, not Caddy. It trusts
+`X-Forwarded-For` only from `ForwardedHeaders:KnownNetworks` (env
+`ForwardedHeaders__KnownNetworks`, comma/semicolon CIDRs), default `127.0.0.0/8, ::1/128,
+172.16.0.0/12` (loopback + default Docker bridge). If the container sees a different source
+(host networking, a non-default bridge, an ALB in front → also bump `ForwardedHeaders__ForwardLimit`),
+set that var to the tightest range that covers the proxy.
+
 ## Deployment (mirror Henderson — not yet wired)
 
 `Dockerfile`, `Caddyfile`, `.github/workflows/deploy-api.yml` are in place, modeled on
 Henderson's. Target: EC2 + Docker behind Caddy (auto-HTTPS), RDS Postgres, image via ECR,
 deploy on `master` push through GitHub Actions OIDC + SSM Run Command (no SSH). Secrets in
 SSM Parameter Store `/digitalbox/prod/*` → `/etc/digitalbox-api.env` → `docker run --env-file`
-(`ConnectionStrings__Default`, `Jwt__Key`, `Cors__AllowedOrigin` — no `Auth__*` any more).
+(`ConnectionStrings__Default`, `Jwt__Key` (>= 32 bytes or startup fails), `Cors__AllowedOrigin`,
+optionally `ForwardedHeaders__KnownNetworks` — no `Auth__*` any more).
 The workflow needs repo `vars`: `AWS_REGION`, `ECR_REPOSITORY`, `EC2_INSTANCE_ID`,
 `AWS_DEPLOY_ROLE_ARN`. Migrations to RDS: `dotnet ef migrations bundle --self-contained
 -r linux-x64` run from the instance (RDS isn't publicly reachable), with

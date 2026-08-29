@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Claims;
 using System.Text;
 using DigitalBoxApi.Data;
@@ -6,6 +8,7 @@ using DigitalBoxApi.Realtime;
 using DigitalBoxApi.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -17,7 +20,58 @@ const string AppCorsPolicy = "AppCorsPolicy";
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
+// --- Reverse-proxy awareness -------------------------------------------------
+// In production Caddy terminates TLS and forwards to this app over plain HTTP. Without honoring
+// X-Forwarded-For every request appears to originate from the proxy, so the per-IP login lockout
+// (Services/LoginThrottle) collapses into one global bucket an attacker can use to lock out every
+// user — and every security log line records the proxy's address instead of the client's. Trust
+// the forwarded headers only from the proxy address(es) below, never unconditionally.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // One proxy hop (Caddy). Bump via ForwardedHeaders__ForwardLimit if another proxy (an ALB,
+    // Cloudflare) is ever put in front — and add its egress range to KnownNetworks too.
+    options.ForwardLimit = builder.Configuration.GetValue<int?>("ForwardedHeaders:ForwardLimit") ?? 1;
+    options.KnownProxies.Clear();
+    options.KnownNetworks.Clear();
+
+    // Override in prod via ForwardedHeaders__KnownNetworks (comma/semicolon-separated CIDRs) with
+    // the tightest range that covers the proxy. Default: loopback + the default Docker bridge
+    // range, which is what Kestrel sees when Caddy proxies to a published container port.
+    var configured = builder.Configuration["ForwardedHeaders:KnownNetworks"];
+    var cidrs = string.IsNullOrWhiteSpace(configured)
+        ? new[] { "127.0.0.0/8", "::1/128", "172.16.0.0/12" }
+        : configured.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    foreach (var cidr in cidrs)
+    {
+        var slash = cidr.IndexOf('/');
+        if (slash > 0
+            && IPAddress.TryParse(cidr[..slash], out var prefix)
+            && int.TryParse(cidr[(slash + 1)..], out var length)
+            && length >= 0
+            && length <= (prefix.AddressFamily == AddressFamily.InterNetworkV6 ? 128 : 32))
+        {
+            options.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(prefix, length));
+        }
+        else
+        {
+            Console.Error.WriteLine($"[startup] Ignoring malformed ForwardedHeaders:KnownNetworks entry '{cidr}'.");
+        }
+    }
+});
+
+// The JWT signing key is the entire strength of HS256 auth: a weak or guessable value lets anyone
+// forge a token — including an admin one. Fail fast rather than boot with one.
 var jwtSection = builder.Configuration.GetSection("Jwt");
+var jwtKey = jwtSection["Key"];
+const int MinJwtKeyBytes = 32;
+if (string.IsNullOrEmpty(jwtKey) || Encoding.UTF8.GetByteCount(jwtKey) < MinJwtKeyBytes)
+{
+    throw new InvalidOperationException(
+        $"Jwt:Key must be at least {MinJwtKeyBytes} bytes ({MinJwtKeyBytes * 8}-bit) of random data. " +
+        "Generate one with `openssl rand -base64 48` and supply it via the Jwt__Key environment variable.");
+}
 builder.Services.AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -25,7 +79,6 @@ builder.Services.AddAuthentication(options =>
     })
     .AddJwtBearer(options =>
     {
-        var key = jwtSection["Key"];
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -34,9 +87,7 @@ builder.Services.AddAuthentication(options =>
             ValidateIssuerSigningKey = true,
             ValidIssuer = jwtSection["Issuer"],
             ValidAudience = jwtSection["Audience"],
-            IssuerSigningKey = string.IsNullOrEmpty(key)
-                ? null
-                : new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key))
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
         };
 
         // Re-check the account on every request: a deactivated user or a password reset
@@ -216,6 +267,10 @@ if (args.Length > 0 && args[0] == "dump-pdf")
 }
 
 // --- HTTP pipeline ---------------------------------------------------------
+
+// Must run before anything that reads the client address, host, or scheme (exception handler,
+// auth, the login throttle). Rewrites them from the proxy's forwarded headers.
+app.UseForwardedHeaders();
 
 app.UseExceptionHandler(errorApp =>
 {
