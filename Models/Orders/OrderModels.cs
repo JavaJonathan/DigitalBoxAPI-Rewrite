@@ -144,6 +144,16 @@ public class UploadResponseModel
     public List<UploadFileResultModel> Files { get; set; } = new();
 }
 
+/// <summary>
+/// Body of <c>POST /api/orders/upload/announce</c> — the one summary activity broadcast a
+/// chunked upload fires after all its batches have been sent with <c>announce=false</c>.
+/// </summary>
+public class AnnounceUploadRequestModel
+{
+    [Range(0, int.MaxValue)]
+    public int Created { get; set; }
+}
+
 public class ShipOrCancelRequestModel
 {
     [Required]

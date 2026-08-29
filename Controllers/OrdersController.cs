@@ -39,10 +39,16 @@ public class OrdersController : ControllerBase
         _logger = logger;
     }
 
+    /// <param name="announce">
+    /// When true (the default, and what a single non-chunked upload sends), broadcast a
+    /// "someone uploaded N orders" activity popup. The UI sets it false on every batch of a
+    /// chunked upload and instead calls <see cref="AnnounceUpload"/> once at the end, so
+    /// coworkers get one popup rather than one per chunk. A queue-refresh nudge always fires.
+    /// </param>
     [HttpPost("upload")]
-    [RequestSizeLimit(800 * 1024 * 1024)]
+    [RequestSizeLimit(100 * 1024 * 1024)]
     public async Task<ActionResult<UploadResponseModel>> Upload(
-        [FromForm] List<IFormFile> files, CancellationToken ct)
+        [FromForm] List<IFormFile> files, [FromForm] bool announce = true, CancellationToken ct = default)
     {
         if (files is null || files.Count == 0)
         {
@@ -88,9 +94,13 @@ public class OrdersController : ControllerBase
                 continue;
             }
 
-            using var ms = new MemoryStream();
-            await file.CopyToAsync(ms, ct);
-            var bytes = ms.ToArray();
+            // Length is known from the multipart headers, so read straight into a right-sized
+            // buffer — no MemoryStream growth + second .ToArray() copy (was ~2x the file in RAM).
+            var bytes = new byte[file.Length];
+            await using (var stream = file.OpenReadStream())
+            {
+                await stream.ReadExactlyAsync(bytes, ct);
+            }
 
             var result = await _ingestion.IngestAsync(file.FileName, bytes, ct);
             response.Files.Add(result);
@@ -103,9 +113,29 @@ public class OrdersController : ControllerBase
         }
 
         var (actor, actorId) = CurrentActor();
-        await Broadcast("uploaded", response.Created, actor, actorId);
+        if (announce)
+        {
+            await Broadcast("uploaded", response.Created, actor, actorId);
+        }
+        else
+        {
+            // Chunked upload: no popup yet, but connected queues still need to re-fetch now.
+            await NotifyQueueChanged();
+        }
 
         return Ok(response);
+    }
+
+    /// <summary>
+    /// Fire the single "someone uploaded N orders" activity popup after a chunked upload has
+    /// sent all of its batches with <c>announce=false</c>. Best-effort, like every hub push.
+    /// </summary>
+    [HttpPost("upload/announce")]
+    public async Task<IActionResult> AnnounceUpload(AnnounceUploadRequestModel request)
+    {
+        var (actor, actorId) = CurrentActor();
+        await Broadcast("uploaded", request.Created, actor, actorId);
+        return NoContent();
     }
 
     [HttpGet]
