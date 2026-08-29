@@ -3,7 +3,10 @@ obj/
 .vs/
 .git/
 .github/
+.gitignore
+Properties/
 **/appsettings.*.local.json
+**/appsettings.Development.json
 **/*.env
 Caddyfile
-README.md
+*.md
