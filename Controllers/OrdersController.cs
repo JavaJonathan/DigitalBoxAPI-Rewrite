@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using DigitalBoxApi.Data;
 using DigitalBoxApi.Entities;
 using DigitalBoxApi.Models.Orders;
@@ -325,14 +326,19 @@ public class OrdersController : ControllerBase
     public Task<ActionResult<ActionResultModel>> Cancel(ShipOrCancelRequestModel request, CancellationToken ct)
         => Transition(request, OrderStatus.Cancelled, ct);
 
+    /// <summary>The signed-in user, stamped onto the order and its audit event.</summary>
+    private (string Name, Guid? Id) CurrentActor()
+    {
+        var name = User.FindFirstValue(ClaimTypes.Name) ?? User.Identity?.Name ?? "Unknown";
+        return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
+            ? (name, id)
+            : (name, null);
+    }
+
     private async Task<ActionResult<ActionResultModel>> Transition(
         ShipOrCancelRequestModel request, OrderStatus target, CancellationToken ct)
     {
-        var actor = request.ActionedBy.Trim();
-        if (actor.Length == 0)
-        {
-            return BadRequest(new { message = "Your name is required." });
-        }
+        var (actor, actorId) = CurrentActor();
 
         var ids = request.OrderIds.Distinct().ToList();
         var orders = await _db.Orders
@@ -354,6 +360,7 @@ public class OrdersController : ControllerBase
 
             order.Status = target;
             order.ActionedBy = actor;
+            order.ActionedByUserId = actorId;
             order.UpdatedAt = now;
             if (target == OrderStatus.Shipped)
             {
@@ -368,6 +375,7 @@ public class OrdersController : ControllerBase
             {
                 Type = target == OrderStatus.Shipped ? OrderEventType.Shipped : OrderEventType.Cancelled,
                 Actor = actor,
+                ActorUserId = actorId,
                 OccurredAt = now
             });
 
@@ -391,11 +399,7 @@ public class OrdersController : ControllerBase
     [HttpPost("undo")]
     public async Task<ActionResult<ActionResultModel>> Undo(ShipOrCancelRequestModel request, CancellationToken ct)
     {
-        var actor = request.ActionedBy.Trim();
-        if (actor.Length == 0)
-        {
-            return BadRequest(new { message = "Your name is required." });
-        }
+        var (actor, actorId) = CurrentActor();
 
         var ids = request.OrderIds.Distinct().ToList();
         var orders = await _db.Orders
@@ -418,6 +422,7 @@ public class OrdersController : ControllerBase
             var from = order.Status;
             order.Status = OrderStatus.Open;
             order.ActionedBy = null;
+            order.ActionedByUserId = null;
             order.ShippedAt = null;
             order.CancelledAt = null;
             order.UpdatedAt = now;
@@ -426,6 +431,7 @@ public class OrdersController : ControllerBase
             {
                 Type = OrderEventType.Reopened,
                 Actor = actor,
+                ActorUserId = actorId,
                 Detail = from == OrderStatus.Shipped ? "Reopened from shipped." : "Reopened from cancelled.",
                 OccurredAt = now
             });

@@ -10,8 +10,11 @@ public class OrderEvent
 
     public OrderEventType Type { get; set; }
 
-    /// <summary>Operator name for Shipped/Cancelled events; null for system events.</summary>
+    /// <summary>Operator display-name snapshot for Shipped/Cancelled events; null for system events.</summary>
     public string? Actor { get; set; }
+
+    /// <summary>Stable reference to that user. Soft (no FK) — null for system / pre-accounts events.</summary>
+    public Guid? ActorUserId { get; set; }
 
     /// <summary>Optional human-readable detail (e.g. what an Edited event changed).</summary>
     public string? Detail { get; set; }

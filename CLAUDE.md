@@ -20,9 +20,9 @@ read that repo's `CLAUDE.md` for the deployment model this one follows.
 
 ```bash
 dotnet build
-dotnet run                              # Development profile, http://localhost:5180 (Swagger at /swagger)
-dotnet run -- set-password <plaintext>  # prints a PBKDF2 hash for Auth:PasswordHash
-dotnet run -- dump-pdf <file.pdf>       # runs the packing-slip parser and prints what it extracted
+dotnet run                                        # Development profile, http://localhost:5180 (Swagger at /swagger)
+dotnet run -- create-admin <user> "<name>" [pw]   # seeds an Admin account (only way to make one); prints the password
+dotnet run -- dump-pdf <file.pdf>                 # runs the packing-slip parser and prints what it extracted
 dotnet ef migrations add <Name>
 dotnet ef database update
 ```
@@ -31,33 +31,44 @@ No automated test suite.
 
 ### Local prerequisites
 
-A running local PostgreSQL, plus three `dotnet user-secrets` values (never committed —
+A running local PostgreSQL, plus two `dotnet user-secrets` values (never committed —
 `appsettings.json` has placeholders only):
 
 ```bash
 dotnet user-secrets set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=DigitalBox;Username=postgres;Password=<yours>"
 dotnet user-secrets set "Jwt:Key" "<random 32+ byte string>"
-dotnet user-secrets set "Auth:PasswordHash" "<output of: dotnet run -- set-password <pw>>"
 ```
 
-`Auth:Username` defaults to `warehouse` in `appsettings.json`; override in secrets/SSM if desired.
+Then `dotnet ef database update` and `dotnet run -- create-admin <user> "<name>"` to get a login.
+`Jwt:AccessTokenHours` defaults to 8.
 
 ## Architecture
 
 **Stack**: ASP.NET Core 9 Web API, EF Core + `Npgsql.EntityFrameworkCore.PostgreSQL`,
 controllers (no minimal APIs), `UglyToad.PdfPig` for PDF text extraction, `CsvHelper` for the
 inventory-report CSV. Swashbuckle pinned to **9.0.6** (10.x has breaking `Microsoft.OpenApi`
-changes — Henderson gotcha). No ASP.NET Identity: auth is a single shared credential (see below).
+changes — Henderson gotcha). No ASP.NET Identity — a hand-rolled user table (see Auth below).
 
 **`Program.cs`** is the composition root: DI + JWT bearer + CORS + Swagger, then two CLI
-command branches (`set-password`, `dump-pdf`) that run and exit before `app.Run()`, then the
+command branches (`create-admin`, `dump-pdf`) that run and exit before `app.Run()`, then the
 HTTP pipeline with a global exception handler returning `{ message }`.
 
-**Auth** — one shared username/password, no user table. `AuthController.Login` checks
-`Auth:Username` + PBKDF2-verifies against `Auth:PasswordHash` (`Services/PasswordHasher.cs`),
-issues a 12h JWT (`Services/JwtTokenService.cs`), and applies an in-memory per-IP lockout
-(`Services/LoginThrottle.cs`, 5 failures / 15 min → `423`). Every controller except
-`HealthController` and `AuthController.Login` is `[Authorize]`. There are no roles.
+**Auth** — per-user accounts (`Entities/User`, `Data` table `Users`). Username-only (no email),
+two roles (`User` / `Admin`). `AuthController.Login` looks the user up by lower-cased username,
+requires `IsActive`, PBKDF2-verifies against `PasswordHash` (`Services/PasswordHasher.cs`),
+issues an 8h JWT (`Services/JwtTokenService.cs`, lifetime from `Jwt:AccessTokenHours`) carrying
+`sub`/role/`stamp` claims, applies an in-memory per-IP lockout (`Services/LoginThrottle.cs`,
+**50** failures / 15 min → `423`) and a 400ms delay on failure. The JWT bearer
+`OnTokenValidated` event re-reads the user on **every** request and rejects the token if the
+account is gone, deactivated, or its `SecurityStamp` changed — so deactivation and password
+resets take effect immediately. Passwords are **admin-issued only**: `UsersController`
+(`[Authorize(Roles=Admin)]`) creates users and resets passwords, always returning a
+system-generated passphrase once (`Services/PasswordGenerator.cs`) — there is no self-service
+and no set-your-own-password. New accounts are always `User`; **admins are seeded only via
+`dotnet run -- create-admin`**. `UserService` holds the shared normalize/construct helpers.
+Every controller except `HealthController` and `AuthController.Login` is `[Authorize]`.
+`Order.ActionedByUserId` / `OrderEvent.ActorUserId` are soft (FK-less) references to the acting
+user; `ActionedBy` / `Actor` keep the display-name snapshot for old rows and renames.
 
 **Data model** (`Data/ApplicationDbContext.cs`, `Entities/`):
 - `Order` — `OrderNumber`, `Marketplace` (enum→string), `ShipDate` (DateOnly?), `Status`
@@ -72,6 +83,7 @@ issues a 12h JWT (`Services/JwtTokenService.cs`), and applies an in-memory per-I
 - `OrderEvent` — append-only audit (`Created`/`Shipped`/`Cancelled`/`Edited`/`Reopened`). Backs
   the history views. Never set `Id` on a new event added to a tracked `order.Events` (EF emits
   UPDATE→"affected 0" — the child-PK bug hit twice this project).
+- `User` — login accounts; see **Auth** above. `Users` table, unique lower-cased `Username`.
 
 **Ingestion** (`Services/OrderIngestionService.cs`): per uploaded PDF — SHA-256 → dedupe
 check → `IPackingSlipParser.Parse` → create Order + line items + slip + `Created` event in
@@ -95,8 +107,12 @@ queue under every sort; every branch ends `.ThenBy(o => o.Id)` for stable pagina
 `GET /{id}/packing-slip` (streams the PDF), `PUT /{id}` (correct parsed fields — Open orders only,
 409s otherwise), `POST /{id}/priority` (any status, no event), `PUT /{id}/notes` (any status —
 that's why it's separate from `PUT /{id}`, no event), `POST /ship`, `POST /cancel`, `POST /undo`
-(all take `orderIds[]` + `actionedBy`; undo reopens Shipped/Cancelled → Open, appends `Reopened`,
-keeps priority/notes).
+(all take just `orderIds[]` — the actor is the signed-in user, from the JWT; undo reopens
+Shipped/Cancelled → Open, appends `Reopened`, keeps priority/notes).
+
+**User admin** (`Controllers/UsersController.cs`, `api/users`, `[Authorize(Roles=Admin)]`):
+`GET /` (list), `POST /` (`{username,displayName}` → user + one-time `generatedPassword`),
+`POST /{id}/reset-password`, `POST /{id}/deactivate` + `/activate`, `PUT /{id}` (rename).
 
 **Shippable Items report** (`Controllers/ReportsController.cs`, `api/reports/shippable-items`):
 multipart CSV upload + `skuColumn`/`titleColumn`/`qtyColumn` form fields (UI maps them),
@@ -114,11 +130,14 @@ falls back to the Vite dev origin `http://localhost:5173`.
 `Dockerfile`, `Caddyfile`, `.github/workflows/deploy-api.yml` are in place, modeled on
 Henderson's. Target: EC2 + Docker behind Caddy (auto-HTTPS), RDS Postgres, image via ECR,
 deploy on `master` push through GitHub Actions OIDC + SSM Run Command (no SSH). Secrets in
-SSM Parameter Store `/digitalbox/prod/*` → `/etc/digitalbox-api.env` → `docker run --env-file`.
+SSM Parameter Store `/digitalbox/prod/*` → `/etc/digitalbox-api.env` → `docker run --env-file`
+(`ConnectionStrings__Default`, `Jwt__Key`, `Cors__AllowedOrigin` — no `Auth__*` any more).
 The workflow needs repo `vars`: `AWS_REGION`, `ECR_REPOSITORY`, `EC2_INSTANCE_ID`,
 `AWS_DEPLOY_ROLE_ARN`. Migrations to RDS: `dotnet ef migrations bundle --self-contained
 -r linux-x64` run from the instance (RDS isn't publicly reachable), with
-`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`.
+`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`. **After the first migration**, seed the admin once
+on the instance: `docker run --rm --env-file /etc/digitalbox-api.env <image> create-admin
+<user> "<name>"` — note the printed passphrase and hand it to the owner.
 
 ## Gotchas
 

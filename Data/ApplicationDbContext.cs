@@ -13,6 +13,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<OrderLineItem> OrderLineItems => Set<OrderLineItem>();
     public DbSet<PackingSlip> PackingSlips => Set<PackingSlip>();
     public DbSet<OrderEvent> OrderEvents => Set<OrderEvent>();
+    public DbSet<User> Users => Set<User>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -29,6 +30,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(o => o.ParseStatus).HasConversion<string>().HasMaxLength(32);
             entity.Property(o => o.SearchText).HasColumnType("text");
             entity.Property(o => o.ActionedBy).HasMaxLength(120);
+            entity.HasIndex(o => o.ActionedByUserId);
             entity.Property(o => o.Notes).HasColumnType("text");
 
             entity.HasIndex(o => o.OrderNumber);
@@ -76,6 +78,16 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Actor).HasMaxLength(120);
             entity.Property(e => e.Detail).HasColumnType("text");
             entity.HasIndex(e => e.OrderId);
+            entity.HasIndex(e => e.ActorUserId);
+        });
+
+        builder.Entity<User>(entity =>
+        {
+            entity.Property(u => u.Username).HasMaxLength(64).IsRequired();
+            entity.Property(u => u.DisplayName).HasMaxLength(120).IsRequired();
+            entity.Property(u => u.PasswordHash).IsRequired();
+            entity.Property(u => u.Role).HasConversion<string>().HasMaxLength(16);
+            entity.HasIndex(u => u.Username).IsUnique();
         });
     }
 }

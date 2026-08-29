@@ -149,10 +149,6 @@ public class ShipOrCancelRequestModel
     [Required]
     [MinLength(1)]
     public List<Guid> OrderIds { get; set; } = new();
-
-    [Required]
-    [MaxLength(120)]
-    public string ActionedBy { get; set; } = string.Empty;
 }
 
 public class ActionResultModel

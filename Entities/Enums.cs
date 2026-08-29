@@ -29,6 +29,15 @@ public enum ParseStatus
     Failed
 }
 
+public enum UserRole
+{
+    /// <summary>Warehouse staff: full order access, no user administration.</summary>
+    User = 0,
+
+    /// <summary>Can manage user accounts and reset passwords. Seeded via CLI only.</summary>
+    Admin
+}
+
 public enum OrderEventType
 {
     Created = 0,

@@ -1,5 +1,7 @@
+using System.Security.Claims;
 using System.Text;
 using DigitalBoxApi.Data;
+using DigitalBoxApi.Entities;
 using DigitalBoxApi.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
@@ -35,12 +37,43 @@ builder.Services.AddAuthentication(options =>
                 ? null
                 : new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key))
         };
+
+        // Re-check the account on every request: a deactivated user or a password reset
+        // rotates User.SecurityStamp, so stale tokens are rejected at once rather than living
+        // out their remaining lifetime. One indexed SELECT per authorized request.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var principal = context.Principal;
+                var db = context.HttpContext.RequestServices.GetRequiredService<ApplicationDbContext>();
+
+                if (!Guid.TryParse(principal?.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+                {
+                    context.Fail("Malformed token.");
+                    return;
+                }
+
+                var account = await db.Users
+                    .Where(u => u.Id == userId)
+                    .Select(u => new { u.IsActive, u.SecurityStamp })
+                    .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
+
+                var tokenStamp = principal?.FindFirstValue(JwtTokenService.SecurityStampClaim);
+                if (account is null || !account.IsActive || account.SecurityStamp.ToString() != tokenStamp)
+                {
+                    context.Fail("Account is no longer valid.");
+                }
+            }
+        };
     });
 
 builder.Services.AddAuthorization();
 
-// Single shared credential — no user store. See Services/PasswordHasher + AuthController.
+// Per-user accounts (Entities/User + Controllers/UsersController). Admins are seeded with the
+// `create-admin` CLI command below; the app never creates an admin.
 builder.Services.AddSingleton<LoginThrottle>();
+builder.Services.AddSingleton<IPasswordGenerator, PasswordGenerator>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 
 builder.Services.AddSingleton<IPackingSlipParser, PdfPigPackingSlipParser>();
@@ -94,18 +127,36 @@ var app = builder.Build();
 
 // --- CLI command branches (exit before app.Run) -----------------------------
 
-if (args.Length > 0 && args[0] == "set-password")
+if (args.Length > 0 && args[0] == "create-admin")
 {
-    if (args.Length < 2)
+    if (args.Length < 3)
     {
-        Console.WriteLine("Usage: dotnet run -- set-password <plaintext>");
+        Console.WriteLine("Usage: dotnet run -- create-admin <username> \"<display name>\" [password]");
+        Console.WriteLine("Omit [password] to have a passphrase generated. This is the only way to make an admin.");
         return;
     }
 
-    var hash = PasswordHasher.Hash(args[1]);
-    Console.WriteLine("Set this as Auth:PasswordHash (user-secrets locally / SSM in prod):");
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var generator = scope.ServiceProvider.GetRequiredService<IPasswordGenerator>();
+
+    var normalized = UserService.NormalizeUsername(args[1]);
+    if (await db.Users.AnyAsync(u => u.Username == normalized))
+    {
+        Console.WriteLine($"A user named \"{normalized}\" already exists. Aborting.");
+        return;
+    }
+
+    var password = args.Length >= 4 ? args[3] : generator.Generate();
+    var admin = UserService.NewUser(args[1], args[2], UserRole.Admin, password);
+    db.Users.Add(admin);
+    await db.SaveChangesAsync();
+
+    Console.WriteLine($"Created admin '{admin.Username}' ({admin.DisplayName}).");
     Console.WriteLine();
-    Console.WriteLine(hash);
+    Console.WriteLine($"    Password: {password}");
+    Console.WriteLine();
+    Console.WriteLine("Hand this to the account owner; they can reset it from the Users screen.");
     return;
 }
 

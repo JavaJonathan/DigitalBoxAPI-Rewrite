@@ -1,8 +1,10 @@
 using System.Security.Claims;
+using DigitalBoxApi.Data;
 using DigitalBoxApi.Models.Auth;
 using DigitalBoxApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace DigitalBoxApi.Controllers;
 
@@ -10,18 +12,21 @@ namespace DigitalBoxApi.Controllers;
 [Route("api/auth")]
 public class AuthController : ControllerBase
 {
-    private readonly IConfiguration _configuration;
+    /// <summary>Fixed delay on a failed login — invisible to a person, throttles scripted guessing.</summary>
+    private static readonly TimeSpan FailureDelay = TimeSpan.FromMilliseconds(400);
+
+    private readonly ApplicationDbContext _db;
     private readonly IJwtTokenService _jwt;
     private readonly LoginThrottle _throttle;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
-        IConfiguration configuration,
+        ApplicationDbContext db,
         IJwtTokenService jwt,
         LoginThrottle throttle,
         ILogger<AuthController> logger)
     {
-        _configuration = configuration;
+        _db = db;
         _jwt = jwt;
         _throttle = throttle;
         _logger = logger;
@@ -29,7 +34,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("login")]
     [AllowAnonymous]
-    public ActionResult<LoginResponseModel> Login(LoginRequestModel request)
+    public async Task<ActionResult<LoginResponseModel>> Login(LoginRequestModel request, CancellationToken ct)
     {
         var clientKey = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
@@ -40,41 +45,38 @@ public class AuthController : ControllerBase
                 new { message = "Too many failed login attempts. Try again in 15 minutes." });
         }
 
-        var expectedUsername = _configuration["Auth:Username"];
-        var expectedHash = _configuration["Auth:PasswordHash"];
+        var username = request.Username.Trim().ToLowerInvariant();
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Username == username, ct);
 
-        if (string.IsNullOrWhiteSpace(expectedUsername) || string.IsNullOrWhiteSpace(expectedHash))
-        {
-            _logger.LogError("Auth:Username / Auth:PasswordHash are not configured.");
-            return StatusCode(StatusCodes.Status500InternalServerError,
-                new { message = "Login is not configured on the server." });
-        }
-
-        var ok = string.Equals(request.Username, expectedUsername, StringComparison.Ordinal)
-                 && PasswordHasher.Verify(request.Password, expectedHash);
-
+        var ok = user is { IsActive: true } && PasswordHasher.Verify(request.Password, user.PasswordHash);
         if (!ok)
         {
             _throttle.RecordFailure(clientKey);
             _logger.LogWarning("Login failed for {Client}.", clientKey);
+            await Task.Delay(FailureDelay, ct);
             return Unauthorized(new { message = "Invalid username or password." });
         }
 
         _throttle.RecordSuccess(clientKey);
-        var (token, expiresAtUtc) = _jwt.CreateToken(expectedUsername);
+        user!.LastLoginAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
 
+        var (token, expiresAtUtc) = _jwt.CreateToken(user);
         return Ok(new LoginResponseModel
         {
             Token = token,
             ExpiresAtUtc = expiresAtUtc,
-            Username = expectedUsername
+            User = AuthUserModel.From(user)
         });
     }
 
     [HttpGet("me")]
     [Authorize]
-    public ActionResult<MeResponseModel> Me() => Ok(new MeResponseModel
+    public ActionResult<AuthUserModel> Me() => Ok(new AuthUserModel
     {
-        Username = User.FindFirstValue(ClaimTypes.Name) ?? User.Identity?.Name ?? string.Empty
+        Id = Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty,
+        Username = User.FindFirstValue("preferred_username") ?? string.Empty,
+        DisplayName = User.FindFirstValue(ClaimTypes.Name) ?? string.Empty,
+        Role = User.FindFirstValue(ClaimTypes.Role) ?? nameof(Entities.UserRole.User)
     });
 }

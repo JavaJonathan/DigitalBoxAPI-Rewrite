@@ -3,12 +3,14 @@ using System.Collections.Concurrent;
 namespace DigitalBoxApi.Services;
 
 /// <summary>
-/// In-memory failed-login lockout for the single shared credential. Keyed by client IP so one
-/// bad actor cannot lock the whole warehouse out. Not distributed — fine for a single instance.
+/// In-memory failed-login lockout. Keyed by client IP so one bad actor cannot lock the whole
+/// warehouse out. Not distributed — fine for a single instance. The threshold is deliberately
+/// loose (real staff fat-finger a username-only login often); it exists to stop scripted
+/// brute force, and password length is the real defence.
 /// </summary>
 public class LoginThrottle
 {
-    private const int MaxFailures = 5;
+    private const int MaxFailures = 50;
     private static readonly TimeSpan LockoutWindow = TimeSpan.FromMinutes(15);
 
     private sealed class Entry

@@ -1,17 +1,21 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using DigitalBoxApi.Entities;
 using Microsoft.IdentityModel.Tokens;
 
 namespace DigitalBoxApi.Services;
 
 public interface IJwtTokenService
 {
-    (string Token, DateTime ExpiresAtUtc) CreateToken(string username);
+    (string Token, DateTime ExpiresAtUtc) CreateToken(User user);
 }
 
 public class JwtTokenService : IJwtTokenService
 {
+    /// <summary>Custom claim carrying <see cref="User.SecurityStamp"/> — re-checked per request.</summary>
+    public const string SecurityStampClaim = "stamp";
+
     private readonly IConfiguration _configuration;
 
     public JwtTokenService(IConfiguration configuration)
@@ -19,19 +23,24 @@ public class JwtTokenService : IJwtTokenService
         _configuration = configuration;
     }
 
-    public (string Token, DateTime ExpiresAtUtc) CreateToken(string username)
+    public (string Token, DateTime ExpiresAtUtc) CreateToken(User user)
     {
         var jwtSection = _configuration.GetSection("Jwt");
         var key = jwtSection["Key"] ?? throw new InvalidOperationException("Jwt:Key is not configured.");
         var issuer = jwtSection["Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer is not configured.");
         var audience = jwtSection["Audience"] ?? throw new InvalidOperationException("Jwt:Audience is not configured.");
+        var hours = jwtSection.GetValue<int?>("AccessTokenHours") ?? 8;
 
-        var expiresAtUtc = DateTime.UtcNow.AddHours(12);
+        var expiresAtUtc = DateTime.UtcNow.AddHours(hours);
 
         var claims = new List<Claim>
         {
-            new(JwtRegisteredClaimNames.Sub, username),
-            new(ClaimTypes.Name, username),
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Name, user.DisplayName),
+            new("preferred_username", user.Username),
+            new(ClaimTypes.Role, user.Role.ToString()),
+            new(SecurityStampClaim, user.SecurityStamp.ToString()),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 

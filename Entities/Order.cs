@@ -28,8 +28,14 @@ public class Order
     /// </summary>
     public string SearchText { get; set; } = string.Empty;
 
-    /// <summary>Free-text operator name captured when the order was shipped or cancelled.</summary>
+    /// <summary>
+    /// Display-name snapshot of who shipped or cancelled the order — point-in-time, kept even if
+    /// the user is later renamed or removed.
+    /// </summary>
     public string? ActionedBy { get; set; }
+
+    /// <summary>Stable reference to that user. Soft (no FK) — null for pre-accounts history.</summary>
+    public Guid? ActionedByUserId { get; set; }
 
     public Guid PackingSlipId { get; set; }
     public PackingSlip PackingSlip { get; set; } = null!;
