@@ -13,7 +13,7 @@ public interface IJwtTokenService
 
 public class JwtTokenService : IJwtTokenService
 {
-    /// <summary>Custom claim carrying <see cref="User.SecurityStamp"/> — re-checked per request.</summary>
+    // Custom claim carrying User.SecurityStamp — re-checked per request.
     public const string SecurityStampClaim = "stamp";
 
     private readonly IConfiguration _configuration;

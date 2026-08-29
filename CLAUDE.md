@@ -218,6 +218,14 @@ means dropping features, just not spending money on things we don't need:
   high-frequency event types (e.g. one row per view or per priority toggle — the latter is
   already deliberately event-free).
 
+## Code style
+
+- **Comments are plain `//`, not XML `/// <summary>` doc comments.** The project has no
+  `<GenerateDocumentationFile>`, so `///` blocks generate nothing and only clutter — the
+  owner finds the XML scaffolding hard to read. Write a short `//` line (or `//` block);
+  keep the *why*, drop anything that just restates the member name. EF migration
+  `/// <inheritdoc />` is scaffolded and left as-is.
+
 ## Gotchas
 
 - Only the .NET **10** SDK is installed on this machine, but the .NET 9 runtime is present,

@@ -39,12 +39,10 @@ public class OrdersController : ControllerBase
         _logger = logger;
     }
 
-    /// <param name="announce">
-    /// When true (the default, and what a single non-chunked upload sends), broadcast a
-    /// "someone uploaded N orders" activity popup. The UI sets it false on every batch of a
-    /// chunked upload and instead calls <see cref="AnnounceUpload"/> once at the end, so
-    /// coworkers get one popup rather than one per chunk. A queue-refresh nudge always fires.
-    /// </param>
+    // announce: when true (the default, and what a single non-chunked upload sends), broadcast a
+    // "someone uploaded N orders" activity popup. The UI sets it false on every batch of a
+    // chunked upload and instead calls AnnounceUpload once at the end, so coworkers get one
+    // popup rather than one per chunk. A queue-refresh nudge always fires.
     [HttpPost("upload")]
     [RequestSizeLimit(100 * 1024 * 1024)]
     public async Task<ActionResult<UploadResponseModel>> Upload(
@@ -126,10 +124,8 @@ public class OrdersController : ControllerBase
         return Ok(response);
     }
 
-    /// <summary>
-    /// Fire the single "someone uploaded N orders" activity popup after a chunked upload has
-    /// sent all of its batches with <c>announce=false</c>. Best-effort, like every hub push.
-    /// </summary>
+    // Fire the single "someone uploaded N orders" activity popup after a chunked upload has
+    // sent all of its batches with announce=false. Best-effort, like every hub push.
     [HttpPost("upload/announce")]
     public async Task<IActionResult> AnnounceUpload(AnnounceUploadRequestModel request)
     {
@@ -314,7 +310,7 @@ public class OrdersController : ControllerBase
         return Ok(OrderDetailModel.From(reloaded!));
     }
 
-    /// <summary>Toggle the urgent-triage flag. Works in any status; no timeline event (too noisy).</summary>
+    // Toggle the urgent-triage flag. Works in any status; no timeline event (too noisy).
     [HttpPost("{id:guid}/priority")]
     public async Task<ActionResult<OrderDetailModel>> SetPriority(
         Guid id, SetPriorityRequestModel request, CancellationToken ct)
@@ -333,7 +329,7 @@ public class OrdersController : ControllerBase
         return Ok(OrderDetailModel.From(order));
     }
 
-    /// <summary>Set or clear the operator note. Editable in any status (unlike the full edit, which 409s).</summary>
+    // Set or clear the operator note. Editable in any status (unlike the full edit, which 409s).
     [HttpPut("{id:guid}/notes")]
     public async Task<ActionResult<OrderDetailModel>> SetNotes(
         Guid id, SetNotesRequestModel request, CancellationToken ct)
@@ -367,7 +363,7 @@ public class OrdersController : ControllerBase
     public Task<ActionResult<ActionResultModel>> Cancel(ShipOrCancelRequestModel request, CancellationToken ct)
         => Transition(request, OrderStatus.Cancelled, ct);
 
-    /// <summary>The signed-in user, stamped onto the order and its audit event.</summary>
+    // The signed-in user, stamped onto the order and its audit event.
     private (string Name, Guid? Id) CurrentActor()
     {
         var name = User.FindFirstValue(ClaimTypes.Name) ?? User.Identity?.Name ?? "Unknown";
@@ -376,10 +372,8 @@ public class OrdersController : ControllerBase
             : (name, null);
     }
 
-    /// <summary>
-    /// Push a coworker-activity popup + a queue-changed nudge to every connected browser.
-    /// Best-effort: a realtime failure must never fail the HTTP action that just succeeded.
-    /// </summary>
+    // Push a coworker-activity popup + a queue-changed nudge to every connected browser.
+    // Best-effort: a realtime failure must never fail the HTTP action that just succeeded.
     private async Task Broadcast(string verb, int count, string actor, Guid? actorId)
     {
         if (count <= 0)
@@ -399,7 +393,7 @@ public class OrdersController : ControllerBase
         }
     }
 
-    /// <summary>Nudge connected queues to re-fetch after a silent edit (no activity popup).</summary>
+    // Nudge connected queues to re-fetch after a silent edit (no activity popup).
     private async Task NotifyQueueChanged()
     {
         try
@@ -471,10 +465,8 @@ public class OrdersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>
-    /// Reopen shipped or cancelled orders back to the Open queue. Direction is inferred from
-    /// current status; priority and notes survive (unlike the original, which lost them).
-    /// </summary>
+    // Reopen shipped or cancelled orders back to the Open queue. Direction is inferred from
+    // current status; priority and notes survive (unlike the original, which lost them).
     [HttpPost("undo")]
     public async Task<ActionResult<ActionResultModel>> Undo(ShipOrCancelRequestModel request, CancellationToken ct)
     {

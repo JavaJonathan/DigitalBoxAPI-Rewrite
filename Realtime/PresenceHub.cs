@@ -4,13 +4,11 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace DigitalBoxApi.Realtime;
 
-/// <summary>
-/// The single realtime hub, mapped at <c>/hub/activity</c>. Tracks presence on connect/disconnect
-/// and is the channel the API broadcasts activity + queue-changed events over
-/// (see <c>OrdersController</c>). <c>[Authorize]</c> plus the JWT bearer <c>OnMessageReceived</c>
-/// hook in <c>Program.cs</c> means a connection carries the same identity as an HTTP request,
-/// and the per-request <c>OnTokenValidated</c> check still drops deactivated users.
-/// </summary>
+// The single realtime hub, mapped at /hub/activity. Tracks presence on connect/disconnect
+// and is the channel the API broadcasts activity + queue-changed events over (see
+// OrdersController). [Authorize] plus the JWT bearer OnMessageReceived hook in Program.cs
+// means a connection carries the same identity as an HTTP request, and the per-request
+// OnTokenValidated check still drops deactivated users.
 [Authorize]
 public sealed class PresenceHub : Hub<IActivityClient>
 {

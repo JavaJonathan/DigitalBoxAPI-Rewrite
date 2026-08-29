@@ -9,11 +9,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DigitalBoxApi.Controllers;
 
-/// <summary>
-/// Account administration. Admin-only. Passwords are always system-generated and shown once —
-/// there is no set-a-password field and no self-service. New accounts are always role
-/// <see cref="UserRole.User"/>; admins are seeded with the <c>create-admin</c> CLI command.
-/// </summary>
+// Account administration. Admin-only. Passwords are always system-generated and shown once —
+// there is no set-a-password field and no self-service. New accounts are always role
+// UserRole.User; admins are seeded with the create-admin CLI command.
 [ApiController]
 [Route("api/users")]
 [Authorize(Roles = nameof(UserRole.Admin))]

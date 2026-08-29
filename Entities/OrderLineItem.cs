@@ -11,7 +11,7 @@ public class OrderLineItem
 
     public int Quantity { get; set; }
 
-    /// <summary>SKU/UPC if one could be isolated. Often embedded in <see cref="Title"/> instead.</summary>
+    // SKU/UPC if one could be isolated. Often embedded in Title instead.
     public string? Sku { get; set; }
 
     public int SortOrder { get; set; }

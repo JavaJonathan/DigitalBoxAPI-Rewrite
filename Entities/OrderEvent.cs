@@ -1,6 +1,6 @@
 namespace DigitalBoxApi.Entities;
 
-/// <summary>Append-only audit trail for an order. Powers the history views and future undo.</summary>
+// Append-only audit trail for an order. Powers the history views and future undo.
 public class OrderEvent
 {
     public Guid Id { get; set; }
@@ -10,13 +10,13 @@ public class OrderEvent
 
     public OrderEventType Type { get; set; }
 
-    /// <summary>Operator display-name snapshot for Shipped/Cancelled events; null for system events.</summary>
+    // Operator display-name snapshot for Shipped/Cancelled events; null for system events.
     public string? Actor { get; set; }
 
-    /// <summary>Stable reference to that user. Soft (no FK) — null for system / pre-accounts events.</summary>
+    // Stable reference to that user. Soft (no FK) — null for system / pre-accounts events.
     public Guid? ActorUserId { get; set; }
 
-    /// <summary>Optional human-readable detail (e.g. what an Edited event changed).</summary>
+    // Optional human-readable detail (e.g. what an Edited event changed).
     public string? Detail { get; set; }
 
     public DateTime OccurredAt { get; set; }

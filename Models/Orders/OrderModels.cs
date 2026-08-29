@@ -128,7 +128,7 @@ public class OrderEventModel
 public class UploadFileResultModel
 {
     public string FileName { get; set; } = string.Empty;
-    /// <summary>"created", "duplicate", or "error".</summary>
+    // "created", "duplicate", or "error".
     public string Outcome { get; set; } = string.Empty;
     public Guid? OrderId { get; set; }
     public string? OrderNumber { get; set; }
@@ -144,10 +144,8 @@ public class UploadResponseModel
     public List<UploadFileResultModel> Files { get; set; } = new();
 }
 
-/// <summary>
-/// Body of <c>POST /api/orders/upload/announce</c> — the one summary activity broadcast a
-/// chunked upload fires after all its batches have been sent with <c>announce=false</c>.
-/// </summary>
+// Body of POST /api/orders/upload/announce — the one summary activity broadcast a chunked
+// upload fires after all its batches have been sent with announce=false.
 public class AnnounceUploadRequestModel
 {
     [Range(0, int.MaxValue)]
@@ -173,7 +171,7 @@ public class UpdateOrderRequestModel
     [MaxLength(128)]
     public string OrderNumber { get; set; } = string.Empty;
 
-    /// <summary>One of the Marketplace enum names.</summary>
+    // One of the Marketplace enum names.
     public string Marketplace { get; set; } = nameof(Entities.Marketplace.Unknown);
 
     public DateOnly? ShipDate { get; set; }

@@ -44,7 +44,7 @@ public class UpdateUserRequestModel
     public string DisplayName { get; set; } = string.Empty;
 }
 
-/// <summary>Returned once, on create and on password reset. The passphrase is never stored or logged.</summary>
+// Returned once, on create and on password reset. The passphrase is never stored or logged.
 public class GeneratedPasswordModel
 {
     public UserListItemModel User { get; set; } = new();

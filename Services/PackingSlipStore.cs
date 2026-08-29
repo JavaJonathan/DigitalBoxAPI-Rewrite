@@ -6,14 +6,14 @@ namespace DigitalBoxApi.Services;
 
 public interface IPackingSlipStore
 {
-    /// <summary>Persists the bytes and returns a tracked (unsaved) PackingSlip entity.</summary>
+    // Persists the bytes and returns a tracked (unsaved) PackingSlip entity.
     PackingSlip Create(string fileName, string contentType, byte[] content, string sha256);
 
-    /// <summary>Returns the raw PDF bytes for a stored slip, or null if it is missing.</summary>
+    // Returns the raw PDF bytes for a stored slip, or null if it is missing.
     Task<byte[]?> GetContentAsync(Guid packingSlipId, CancellationToken ct = default);
 }
 
-/// <summary>v1 backend: bytes live in the packing_slips.content bytea column.</summary>
+// v1 backend: bytes live in the packing_slips.content bytea column.
 public class PostgresPackingSlipStore : IPackingSlipStore
 {
     private readonly ApplicationDbContext _db;

@@ -2,11 +2,9 @@ using System.Security.Cryptography;
 
 namespace DigitalBoxApi.Services;
 
-/// <summary>
-/// Generates the readable passphrases the admin hands to staff (e.g. <c>amber-piston-cellar-drift-47</c>).
-/// Four words from the list below plus a two-digit suffix — ~41 bits, and easy to read aloud or
-/// copy off a note. Admin-issued only; rotate via <c>POST /api/users/{id}/reset-password</c>.
-/// </summary>
+// Generates the readable passphrases the admin hands to staff (e.g. amber-piston-cellar-drift-47).
+// Four words from the list below plus a two-digit suffix — ~41 bits, and easy to read aloud or
+// copy off a note. Admin-issued only; rotate via POST /api/users/{id}/reset-password.
 public interface IPasswordGenerator
 {
     string Generate();

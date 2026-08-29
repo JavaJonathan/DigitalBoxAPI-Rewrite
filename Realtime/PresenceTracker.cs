@@ -1,22 +1,19 @@
 namespace DigitalBoxApi.Realtime;
 
-/// <summary>
-/// In-memory record of who is connected. One user can hold several connections (multiple tabs);
-/// they only count as offline once the last one drops. Registered as a singleton.
-/// </summary>
-/// <remarks>
-/// Process-local. If the API is ever scaled past a single instance this needs a SignalR
-/// backplane (Redis) and a shared presence store — not a concern at the current crew size.
-/// </remarks>
+// In-memory record of who is connected. One user can hold several connections (multiple tabs);
+// they only count as offline once the last one drops. Registered as a singleton.
+//
+// Process-local. If the API is ever scaled past a single instance this needs a SignalR
+// backplane (Redis) and a shared presence store — not a concern at the current crew size.
 public interface IPresenceTracker
 {
-    /// <summary>Register a connection. Returns <c>true</c> if this made the user newly online.</summary>
+    // Register a connection. Returns true if this made the user newly online.
     bool Add(Guid userId, string displayName, string connectionId);
 
-    /// <summary>Drop a connection. Returns <c>true</c> if this made the user go offline.</summary>
+    // Drop a connection. Returns true if this made the user go offline.
     bool Remove(Guid userId, string connectionId);
 
-    /// <summary>Everyone online now, ordered by display name.</summary>
+    // Everyone online now, ordered by display name.
     IReadOnlyList<OnlineUser> Snapshot();
 }
 

@@ -2,10 +2,8 @@ using System.Security.Cryptography;
 
 namespace DigitalBoxApi.Services;
 
-/// <summary>
-/// PBKDF2 (SHA-256) password hashing for the single shared login credential.
-/// Hash string format: <c>{iterations}.{saltBase64}.{subkeyBase64}</c>.
-/// </summary>
+// PBKDF2 (SHA-256) password hashing for user login credentials.
+// Hash string format: {iterations}.{saltBase64}.{subkeyBase64}.
 public static class PasswordHasher
 {
     private const int DefaultIterations = 210_000;

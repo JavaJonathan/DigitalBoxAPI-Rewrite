@@ -2,12 +2,12 @@ using DigitalBoxApi.Entities;
 
 namespace DigitalBoxApi.Services;
 
-/// <summary>Shared account helpers used by <c>UsersController</c> and the <c>create-admin</c> CLI.</summary>
+// Shared account helpers used by UsersController and the create-admin CLI.
 public static class UserService
 {
     public static string NormalizeUsername(string username) => username.Trim().ToLowerInvariant();
 
-    /// <summary>Builds a new, active user with the password already hashed. Timestamps set to now.</summary>
+    // Builds a new, active user with the password already hashed. Timestamps set to now.
     public static User NewUser(string username, string displayName, UserRole role, string plainPassword)
     {
         var now = DateTime.UtcNow;

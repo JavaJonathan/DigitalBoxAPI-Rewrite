@@ -4,11 +4,9 @@ using CsvHelper.Configuration;
 
 namespace DigitalBoxApi.Services;
 
-/// <summary>
-/// Reads a customer inventory CSV. Deliberately lenient — the whole reason this feature exists
-/// is that the export is messy (ragged rows, quoted fields, a BOM, a street address as a header).
-/// Column mapping is chosen by the operator in the UI and passed in.
-/// </summary>
+// Reads a customer inventory CSV. Deliberately lenient — the whole reason this feature exists
+// is that the export is messy (ragged rows, quoted fields, a BOM, a street address as a header).
+// Column mapping is chosen by the operator in the UI and passed in.
 public static class InventoryCsv
 {
     private static CsvConfiguration Config() => new(CultureInfo.InvariantCulture)
@@ -20,7 +18,7 @@ public static class InventoryCsv
         DetectDelimiter = false,
     };
 
-    /// <summary>Number-ish → non-negative int; blank / garbage → 0 (fixes the old NaN bug that dropped valid rows).</summary>
+    // Number-ish → non-negative int; blank / garbage → 0 (fixes the old NaN bug that dropped valid rows).
     public static int ParseOnHand(string? raw)
     {
         if (decimal.TryParse(raw?.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var d))
@@ -31,10 +29,8 @@ public static class InventoryCsv
         return 0;
     }
 
-    /// <summary>
-    /// Reads mapped rows. Throws <see cref="InvalidOperationException"/> if a mapped column name
-    /// isn't in the file, or if the row count exceeds <paramref name="maxRows"/>.
-    /// </summary>
+    // Reads mapped rows. Throws InvalidOperationException if a mapped column name isn't in the
+    // file, or if the row count exceeds maxRows.
     public static List<InventoryRow> ReadRows(
         Stream csv, string skuHeader, string titleHeader, string qtyHeader, int maxRows)
     {

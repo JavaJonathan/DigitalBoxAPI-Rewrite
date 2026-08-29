@@ -3,10 +3,8 @@ using DigitalBoxApi.Entities;
 
 namespace DigitalBoxApi.Services;
 
-/// <summary>
-/// Builds the normalized Order.SearchText blob. Mirrors the old client behaviour of stripping
-/// whitespace and punctuation before matching (HttpHelper.filterForSearchValue).
-/// </summary>
+// Builds the normalized Order.SearchText blob. Mirrors the old client behaviour of stripping
+// whitespace and punctuation before matching (HttpHelper.filterForSearchValue).
 public static class SearchText
 {
     public static string Normalize(string? value)

@@ -25,11 +25,9 @@ public class OrderIngestionService
         _logger = logger;
     }
 
-    /// <summary>
-    /// Parses one uploaded PDF and, unless it is a byte-for-byte duplicate, creates an Order
-    /// (+ line items + packing slip + Created event). Each file is committed in its own
-    /// transaction so one bad file does not roll back a whole batch.
-    /// </summary>
+    // Parses one uploaded PDF and, unless it is a byte-for-byte duplicate, creates an Order
+    // (+ line items + packing slip + Created event). Each file is committed in its own
+    // transaction so one bad file does not roll back a whole batch.
     public async Task<UploadFileResultModel> IngestAsync(
         string fileName, byte[] bytes, CancellationToken ct)
     {

@@ -17,13 +17,13 @@ public record ParsedSlip(
 
 public enum ParseConfidence
 {
-    /// <summary>Order number and clean line items were found.</summary>
+    // Order number and clean line items were found.
     Good,
 
-    /// <summary>Some text was read but key fields are missing or suspicious.</summary>
+    // Some text was read but key fields are missing or suspicious.
     Partial,
 
-    /// <summary>No usable text could be extracted.</summary>
+    // No usable text could be extracted.
     None
 }
 
@@ -32,12 +32,10 @@ public interface IPackingSlipParser
     ParsedSlip Parse(byte[] pdfBytes);
 }
 
-/// <summary>
-/// Layout-aware packing-slip extraction over PdfPig. Replaces the old token/URL-encoding state
-/// machine in ContentHelper.js. Words are grouped into visual rows; "Order #" / "Ship Date"
-/// anchors are found by regex; line items are anchored on the price ($) token in each row,
-/// with price-less rows folded into the previous item's title as wrapped text.
-/// </summary>
+// Layout-aware packing-slip extraction over PdfPig. Replaces the old token/URL-encoding state
+// machine in ContentHelper.js. Words are grouped into visual rows; "Order #" / "Ship Date"
+// anchors are found by regex; line items are anchored on the price ($) token in each row,
+// with price-less rows folded into the previous item's title as wrapped text.
 public partial class PdfPigPackingSlipParser : IPackingSlipParser
 {
     private readonly ILogger<PdfPigPackingSlipParser> _logger;
@@ -110,7 +108,7 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
         public string Text => string.Join(' ', Tokens.Select(t => t.Text));
     }
 
-    /// <summary>Debug helper for `dotnet run -- dump-pdf &lt;file&gt; --rows`.</summary>
+    // Debug helper for `dotnet run -- dump-pdf <file> --rows`.
     public static IEnumerable<string> DumpRows(byte[] pdfBytes)
     {
         using var doc = PdfDocument.Open(pdfBytes);

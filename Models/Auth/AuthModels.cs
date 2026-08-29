@@ -19,7 +19,7 @@ public class LoginResponseModel
     public AuthUserModel User { get; set; } = new();
 }
 
-/// <summary>The logged-in identity, shared by the login response and <c>GET /api/auth/me</c>.</summary>
+// The logged-in identity, shared by the login response and GET /api/auth/me.
 public class AuthUserModel
 {
     public Guid Id { get; set; }

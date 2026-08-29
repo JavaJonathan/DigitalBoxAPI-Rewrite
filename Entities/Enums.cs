@@ -16,25 +16,25 @@ public enum OrderStatus
     Cancelled
 }
 
-/// <summary>How confident we are in the data extracted from the packing-slip PDF.</summary>
+// How confident we are in the data extracted from the packing-slip PDF.
 public enum ParseStatus
 {
-    /// <summary>Fields extracted cleanly.</summary>
+    // Fields extracted cleanly.
     Parsed = 0,
 
-    /// <summary>Parsed with gaps or low confidence — a human should check it.</summary>
+    // Parsed with gaps or low confidence — a human should check it.
     NeedsReview,
 
-    /// <summary>The PDF could not be parsed at all; the order is a stub.</summary>
+    // The PDF could not be parsed at all; the order is a stub.
     Failed
 }
 
 public enum UserRole
 {
-    /// <summary>Warehouse staff: full order access, no user administration.</summary>
+    // Warehouse staff: full order access, no user administration.
     User = 0,
 
-    /// <summary>Can manage user accounts and reset passwords. Seeded via CLI only.</summary>
+    // Can manage user accounts and reset passwords. Seeded via CLI only.
     Admin
 }
 
@@ -45,6 +45,6 @@ public enum OrderEventType
     Cancelled,
     Edited,
 
-    /// <summary>A shipped or cancelled order was undone back to Open.</summary>
+    // A shipped or cancelled order was undone back to Open.
     Reopened
 }

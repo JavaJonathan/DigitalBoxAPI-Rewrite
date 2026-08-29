@@ -9,11 +9,11 @@ public class ShippableItemsRowModel
     public int ShippableQty { get; set; }
     public int ShortQty { get; set; }
 
-    /// <summary>"Covered" | "Partial" | "Blocked".</summary>
+    // "Covered" | "Partial" | "Blocked".
     public string Coverage { get; set; } = string.Empty;
 }
 
-/// <summary>Open-order demand with no matching (non-variant) row in the uploaded inventory.</summary>
+// Open-order demand with no matching (non-variant) row in the uploaded inventory.
 public class UnmatchedDemandRowModel
 {
     public string? Sku { get; set; }
@@ -39,7 +39,7 @@ public class ShippableOrderRowModel
     public int LineCount { get; set; }
     public int CoveredLineCount { get; set; }
 
-    /// <summary>"Shippable" | "Partial" | "Blocked" | "NeedsCheck".</summary>
+    // "Shippable" | "Partial" | "Blocked" | "NeedsCheck".
     public string Status { get; set; } = string.Empty;
     public List<ShippableOrderShortLineModel> ShortLines { get; set; } = new();
 }

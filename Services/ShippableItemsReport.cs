@@ -2,13 +2,13 @@ using System.Text.RegularExpressions;
 
 namespace DigitalBoxApi.Services;
 
-/// <summary>One row of the uploaded inventory CSV, already column-mapped and normalized.</summary>
+// One row of the uploaded inventory CSV, already column-mapped and normalized.
 public readonly record struct InventoryRow(string Sku, string Title, int OnHand);
 
-/// <summary>An open-order line item, flattened for matching. Carries its order id.</summary>
+// An open-order line item, flattened for matching. Carries its order id.
 public readonly record struct OpenOrderLine(Guid OrderId, string? Sku, string Title, int Quantity);
 
-/// <summary>Order-level identity + queue-sort keys, so the allocation pass can pick in queue order.</summary>
+// Order-level identity + queue-sort keys, so the allocation pass can pick in queue order.
 public readonly record struct OpenOrderInfo(
     Guid OrderId,
     string OrderNumber,
@@ -26,7 +26,7 @@ public sealed record ShippableItem(
     int ShortQty,
     string Coverage);
 
-/// <summary>Open-order demand that matched no (non-variant) inventory row.</summary>
+// Open-order demand that matched no (non-variant) inventory row.
 public sealed record UnmatchedDemand(string? Sku, string Title, int OrderedQty, int OrderCount);
 
 public sealed record ShippableOrderShortLine(string Title, string? Sku, int OrderedQty, int AvailableQty);
@@ -51,35 +51,31 @@ public sealed record ShippableItemsResult(
     int OrdersNeedsCheck,
     int UnitsShippable);
 
-/// <summary>
-/// Cross-references an inventory list against open-order demand. Successor to the old
-/// InventoryCheckWorker.js. Pure — no DB / IO / DI.
-///
-/// Two products:
-///   * item-level rows  — per matched SKU: ordered vs on-hand, what's shippable, what's short.
-///   * order-level rows  — walking open orders in queue order (priority, then oldest),
-///     decrementing a working copy of stock, so each order reads as Shippable / Partial /
-///     Blocked / NeedsCheck given real contention for scarce SKUs.
-///
-/// Matching rules (fix the old worker's double-count + fragile substring bugs):
-///   * a line with its own SKU matches ONLY an exact (case-insensitive) inventory SKU — a
-///     mismatch there is a real gap, not a formatting quirk, so it is reported, not papered
-///     over with a title guess;
-///   * a line with no SKU falls back to "an inventory SKU (len >= 4) appears in the title",
-///     longest SKU wins;
-///   * every line is attributed to AT MOST ONE inventory SKU, so demand is never summed twice;
-///   * inventory SKUs ending "-&lt;digit&gt;" (variant children) are excluded from matching —
-///     any order demand for them surfaces under UnmatchedDemand instead of vanishing.
-/// </summary>
+// Cross-references an inventory list against open-order demand. Successor to the old
+// InventoryCheckWorker.js. Pure — no DB / IO / DI.
+//
+// Two products:
+//   * item-level rows  — per matched SKU: ordered vs on-hand, what's shippable, what's short.
+//   * order-level rows  — walking open orders in queue order (priority, then oldest),
+//     decrementing a working copy of stock, so each order reads as Shippable / Partial /
+//     Blocked / NeedsCheck given real contention for scarce SKUs.
+//
+// Matching rules (fix the old worker's double-count + fragile substring bugs):
+//   * a line with its own SKU matches ONLY an exact (case-insensitive) inventory SKU — a
+//     mismatch there is a real gap, not a formatting quirk, so it is reported, not papered
+//     over with a title guess;
+//   * a line with no SKU falls back to "an inventory SKU (len >= 4) appears in the title",
+//     longest SKU wins;
+//   * every line is attributed to AT MOST ONE inventory SKU, so demand is never summed twice;
+//   * inventory SKUs ending "-<digit>" (variant children) are excluded from matching —
+//     any order demand for them surfaces under UnmatchedDemand instead of vanishing.
 public static partial class ShippableItemsReport
 {
     [GeneratedRegex(@"-\d$")]
     private static partial Regex VariantSuffix();
 
-    /// <summary>
-    /// Shortest inventory SKU allowed as a bare title substring. A 2–3 char code matches far
-    /// too much text; real marketplace exports never use SKUs that short.
-    /// </summary>
+    // Shortest inventory SKU allowed as a bare title substring. A 2–3 char code matches far
+    // too much text; real marketplace exports never use SKUs that short.
     private const int MinTitleMatchSkuLength = 4;
 
     private sealed class InvAgg
