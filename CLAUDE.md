@@ -134,6 +134,42 @@ the login throttle + all auth logging) is the real client, not Caddy. It trusts
 (host networking, a non-default bridge, an ALB in front → also bump `ForwardedHeaders__ForwardLimit`),
 set that var to the tightest range that covers the proxy.
 
+## Security
+
+This app is going on the public internet with warehouse-staff logins and uploaded customer
+documents. A pre-deploy sweep (2026-08-29) is tracked in the `digitalbox-security-review` memory.
+Hold new code to these rules so the same gaps don't creep back:
+
+- **Everything is `[Authorize]` by default.** Only `HealthController` and `AuthController.Login`
+  are `[AllowAnonymous]`. Adding another anonymous endpoint, or a role check looser than the
+  route it lives on, must be called out in the PR with the reason. `[Authorize(Roles=Admin)]`
+  guards all of `UsersController` — keep user administration admin-only.
+- **Never return exception detail to the client.** Log the exception, return the generic
+  `{ message }` shape. No `ex.Message`, stack traces, SQL, or file paths in a response body or a
+  stored field the UI renders (the parser note and the report errors were both leaking this).
+- **Treat every request body, query value, form field, filename, and uploaded byte as hostile.**
+  Bind to DTOs in `Models/`, never to entities. Parse enums with `Enum.TryParse`. Put
+  `[Range]` / `[StringLength]` / `[MaxLength]` on any client value that drives a loop, an
+  allocation, a DB write size, or a broadcast count.
+- **File uploads**: check the *content*, not just the extension/`ContentType` (magic bytes);
+  enforce the size limit *before* buffering; read into a right-sized `byte[]`, never
+  `MemoryStream` + `.ToArray()` (double RAM). When serving a file back, don't interpolate
+  `file.FileName` into `Content-Disposition` unsanitized, send `X-Content-Type-Options: nosniff`,
+  and prefer `attachment` over `inline` for anything user-supplied.
+- **Fan-out endpoints are rate-limit + clamp candidates.** Anything that hits `Clients.All`, scans
+  every open order, or parses N files per call must bound the client-supplied magnitude and
+  should sit behind the global rate limiter (once added). Only `AuthController` is throttled today.
+- **Secrets come from env / user-secrets only.** `appsettings*.json` keeps empty placeholders.
+  For security-critical config, fail fast at startup rather than booting degraded — see the
+  `Jwt:Key` length check in `Program.cs`; copy that pattern for anything similar.
+- **Logging**: never log passwords, passphrases, tokens, full request bodies, or file bytes.
+  `LogInformation` is for low-frequency events; auth events log the real client IP (post
+  `UseForwardedHeaders`).
+- **Any change to the proxy topology or container networking** → re-check the `ForwardedHeaders`
+  config, or the login throttle silently reverts to one global bucket.
+- **Keep dependencies patched.** Run `dotnet list package --vulnerable --include-transitive`
+  before a deploy; `PdfPig` and `CsvHelper` parse untrusted input.
+
 ## Deployment (mirror Henderson — not yet wired)
 
 `Dockerfile`, `Caddyfile`, `.github/workflows/deploy-api.yml` are in place, modeled on
@@ -148,6 +184,39 @@ The workflow needs repo `vars`: `AWS_REGION`, `ECR_REPOSITORY`, `EC2_INSTANCE_ID
 `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`. **After the first migration**, seed the admin once
 on the instance: `docker run --rm --env-file /etc/digitalbox-api.env <image> create-admin
 <user> "<name>"` — note the printed passphrase and hand it to the owner.
+
+## Cost awareness (AWS)
+
+This runs on deliberately small infra: one shared RDS Postgres, a t3.micro-class EC2 box,
+ECR, and CloudWatch. None of it autoscales. Write code with these in mind — none of this
+means dropping features, just not spending money on things we don't need:
+
+- **RDS storage never shrinks** (high-water-mark billing) and every byte is doubled by
+  backups. Don't persist data a query doesn't need: no denormalized/derived columns beyond
+  the one we already carry (`Order.SearchText`), and no speculative indexes — a GIN
+  `pg_trgm` index alone runs 2–5× the size of its text. New index → name the query it
+  serves in the PR.
+- **Packing-slip PDFs are the main storage driver.** Always go through `IPackingSlipStore`;
+  the bytes move to S3 later (`S3PackingSlipStore`) and callers must not assume they're in
+  the DB. Don't `Include(o => o.PackingSlip)` or select `.Content` unless you're actually
+  serving the file — pulling blobs through the DB buffer cache is also what pushes us off
+  the small instance.
+- **Container image ships to ECR + the EC2 disk on every deploy.** Keep the Alpine runtime
+  base and the no-`.pdb` publish flags. Add a NuGet package only when it earns its place;
+  don't pull in something native-heavy without checking it runs on Alpine (musl).
+- **CloudWatch bills log ingestion + storage.** Production log levels stay at `Warning` for
+  `Microsoft.AspNetCore` and `Microsoft.EntityFrameworkCore.Database.Command`. No
+  per-request `LogInformation`, and never log request/response bodies or file bytes.
+  `LogInformation` is for low-frequency events (a user created, a password reset).
+- **Keep batch/report work synchronous and in-memory** (the Shippable Items pattern) — no
+  queues, worker processes, temp files, or scheduled jobs unless a feature genuinely
+  requires one.
+- **No new always-on processes or managed services.** SignalR presence is intentionally
+  single-instance (in-memory `IPresenceTracker`); scaling it means a Redis backplane, which
+  is a real monthly line item — treat that as a deliberate decision, not a default.
+- **Watch append-only growth.** `OrderEvent` is fine at current volume; don't add
+  high-frequency event types (e.g. one row per view or per priority toggle — the latter is
+  already deliberately event-free).
 
 ## Gotchas
 

@@ -14,7 +14,7 @@ namespace DigitalBoxApi.Controllers;
 public class ReportsController : ControllerBase
 {
     private const long MaxCsvBytes = 25 * 1024 * 1024;
-    private const int MaxCsvRows = 100_000;
+    private const int MaxCsvRows = 50_000;
 
     private readonly ApplicationDbContext _db;
     private readonly ILogger<ReportsController> _logger;
@@ -76,32 +76,78 @@ public class ReportsController : ControllerBase
             return BadRequest(new { message = "The CSV could not be read." });
         }
 
-        var openLines = await _db.Orders
+        var openOrders = await _db.Orders
             .Where(o => o.Status == OrderStatus.Open)
-            .SelectMany(o => o.LineItems)
-            .Select(li => new { li.Sku, li.Title, li.Quantity })
+            .Select(o => new
+            {
+                o.Id,
+                o.OrderNumber,
+                o.Marketplace,
+                o.IsPriority,
+                o.ShipDate,
+                o.CreatedAt,
+                Lines = o.LineItems
+                    .Select(li => new { li.Sku, li.Title, li.Quantity })
+                    .ToList()
+            })
             .ToListAsync(ct);
 
-        var openOrderCount = await _db.Orders.CountAsync(o => o.Status == OrderStatus.Open, ct);
+        var orderInfos = openOrders
+            .Select(o => new OpenOrderInfo(
+                o.Id, o.OrderNumber, o.Marketplace.ToString(), o.IsPriority, o.ShipDate, o.CreatedAt))
+            .ToList();
 
-        var items = ShippableItemsReport.Build(
-            rows,
-            openLines.Select(x => new OpenOrderLine(x.Sku, x.Title, x.Quantity)).ToList());
+        var openLines = openOrders
+            .SelectMany(o => o.Lines.Select(li => new OpenOrderLine(o.Id, li.Sku, li.Title, li.Quantity)))
+            .ToList();
+
+        var result = ShippableItemsReport.Build(rows, orderInfos, openLines);
 
         return Ok(new ShippableItemsResponseModel
         {
-            Rows = items.Select(i => new ShippableItemsRowModel
+            Rows = result.Items.Select(i => new ShippableItemsRowModel
             {
                 Title = i.Title,
                 Sku = i.Sku,
                 OrderedQty = i.OrderedQty,
                 OnHandQty = i.OnHandQty,
-                ShippableQty = i.ShippableQty
+                ShippableQty = i.ShippableQty,
+                ShortQty = i.ShortQty,
+                Coverage = i.Coverage
+            }).ToList(),
+            UnmatchedDemand = result.UnmatchedDemand.Select(u => new UnmatchedDemandRowModel
+            {
+                Sku = u.Sku,
+                Title = u.Title,
+                OrderedQty = u.OrderedQty,
+                OrderCount = u.OrderCount
+            }).ToList(),
+            Orders = result.Orders.Select(o => new ShippableOrderRowModel
+            {
+                OrderId = o.OrderId,
+                OrderNumber = o.OrderNumber,
+                Marketplace = o.Marketplace,
+                IsPriority = o.IsPriority,
+                LineCount = o.LineCount,
+                CoveredLineCount = o.CoveredLineCount,
+                Status = o.Status,
+                ShortLines = o.ShortLines.Select(s => new ShippableOrderShortLineModel
+                {
+                    Title = s.Title,
+                    Sku = s.Sku,
+                    OrderedQty = s.OrderedQty,
+                    AvailableQty = s.AvailableQty
+                }).ToList()
             }).ToList(),
             GeneratedAt = DateTime.UtcNow,
-            OpenOrderCount = openOrderCount,
+            OpenOrderCount = openOrders.Count,
             CsvRowCount = rows.Count,
-            MatchedRowCount = items.Count
+            MatchedRowCount = result.Items.Count,
+            OrdersShippable = result.OrdersShippable,
+            OrdersPartial = result.OrdersPartial,
+            OrdersBlocked = result.OrdersBlocked,
+            OrdersNeedsCheck = result.OrdersNeedsCheck,
+            UnitsShippable = result.UnitsShippable
         });
     }
 
