@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text;
 using DigitalBoxApi.Data;
 using DigitalBoxApi.Entities;
+using DigitalBoxApi.Realtime;
 using DigitalBoxApi.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
@@ -43,6 +44,20 @@ builder.Services.AddAuthentication(options =>
         // out their remaining lifetime. One indexed SELECT per authorized request.
         options.Events = new JwtBearerEvents
         {
+            // The SignalR JS client can't set an Authorization header on the WebSocket
+            // handshake, so it passes the JWT as ?access_token= instead. Pick it up for
+            // hub requests only; everything else keeps using the header.
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(accessToken)
+                    && context.HttpContext.Request.Path.StartsWithSegments("/hub"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            },
             OnTokenValidated = async context =>
             {
                 var principal = context.Principal;
@@ -80,6 +95,11 @@ builder.Services.AddSingleton<IPackingSlipParser, PdfPigPackingSlipParser>();
 builder.Services.AddScoped<IPackingSlipStore, PostgresPackingSlipStore>();
 builder.Services.AddScoped<OrderIngestionService>();
 
+// Realtime presence + activity feed (Realtime/PresenceHub, mapped below). SignalR ships in the
+// Web shared framework — no package reference. The tracker is process-local (see its remarks).
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IPresenceTracker, PresenceTracker>();
+
 var configuredOrigin = builder.Configuration["Cors:AllowedOrigin"];
 var allowedOrigin = string.IsNullOrWhiteSpace(configuredOrigin)
     ? "http://localhost:5173"
@@ -91,6 +111,7 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(allowedOrigin)
             .AllowAnyHeader()
             .AllowAnyMethod()
+            .AllowCredentials() // required for the SignalR hub's negotiate / SSE fallback
             .WithExposedHeaders("Content-Disposition");
     });
 });
@@ -228,5 +249,6 @@ app.UseCors(AppCorsPolicy);
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<PresenceHub>("/hub/activity");
 
 app.Run();

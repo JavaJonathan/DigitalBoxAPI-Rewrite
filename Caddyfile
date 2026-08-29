@@ -3,5 +3,7 @@
 # Elastic IP. A *.sslip.io host (e.g. <dashed-ip>.sslip.io) works as a stopgap; Let's Encrypt
 # will NOT issue for *.amazonaws.com hostnames.
 api.digitalbox.example.com {
+	# Proxies the API and the SignalR hub at /hub/activity — Caddy passes WebSocket
+	# upgrades through reverse_proxy transparently, no extra matcher needed.
 	reverse_proxy localhost:8080
 }

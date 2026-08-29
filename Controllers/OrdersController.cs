@@ -2,9 +2,11 @@ using System.Security.Claims;
 using DigitalBoxApi.Data;
 using DigitalBoxApi.Entities;
 using DigitalBoxApi.Models.Orders;
+using DigitalBoxApi.Realtime;
 using DigitalBoxApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace DigitalBoxApi.Controllers;
@@ -20,17 +22,20 @@ public class OrdersController : ControllerBase
     private readonly ApplicationDbContext _db;
     private readonly OrderIngestionService _ingestion;
     private readonly IPackingSlipStore _slipStore;
+    private readonly IHubContext<PresenceHub, IActivityClient> _hub;
     private readonly ILogger<OrdersController> _logger;
 
     public OrdersController(
         ApplicationDbContext db,
         OrderIngestionService ingestion,
         IPackingSlipStore slipStore,
+        IHubContext<PresenceHub, IActivityClient> hub,
         ILogger<OrdersController> logger)
     {
         _db = db;
         _ingestion = ingestion;
         _slipStore = slipStore;
+        _hub = hub;
         _logger = logger;
     }
 
@@ -96,6 +101,9 @@ public class OrdersController : ControllerBase
                 default: response.Errors++; break;
             }
         }
+
+        var (actor, actorId) = CurrentActor();
+        await Broadcast("uploaded", response.Created, actor, actorId);
 
         return Ok(response);
     }
@@ -270,6 +278,7 @@ public class OrdersController : ControllerBase
         });
 
         await _db.SaveChangesAsync(ct);
+        await NotifyQueueChanged();
 
         var reloaded = await LoadDetail(id, ct);
         return Ok(OrderDetailModel.From(reloaded!));
@@ -289,6 +298,7 @@ public class OrdersController : ControllerBase
         order.IsPriority = request.IsPriority;
         order.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await NotifyQueueChanged();
 
         return Ok(OrderDetailModel.From(order));
     }
@@ -314,6 +324,7 @@ public class OrdersController : ControllerBase
         order.SearchText = SearchText.Build(order.OrderNumber, order.LineItems, notes);
         order.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await NotifyQueueChanged();
 
         return Ok(OrderDetailModel.From(order));
     }
@@ -333,6 +344,42 @@ public class OrdersController : ControllerBase
         return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
             ? (name, id)
             : (name, null);
+    }
+
+    /// <summary>
+    /// Push a coworker-activity popup + a queue-changed nudge to every connected browser.
+    /// Best-effort: a realtime failure must never fail the HTTP action that just succeeded.
+    /// </summary>
+    private async Task Broadcast(string verb, int count, string actor, Guid? actorId)
+    {
+        if (count <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _hub.Clients.All.Activity(new ActivityEvent(
+                Guid.NewGuid(), actorId ?? Guid.Empty, actor, verb, count, DateTime.UtcNow));
+            await _hub.Clients.All.QueueChanged();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to broadcast '{Verb}' activity over the hub.", verb);
+        }
+    }
+
+    /// <summary>Nudge connected queues to re-fetch after a silent edit (no activity popup).</summary>
+    private async Task NotifyQueueChanged()
+    {
+        try
+        {
+            await _hub.Clients.All.QueueChanged();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to broadcast a queue change over the hub.");
+        }
     }
 
     private async Task<ActionResult<ActionResultModel>> Transition(
@@ -389,6 +436,8 @@ public class OrdersController : ControllerBase
             ? $"{result.Updated} order(s) {verb}."
             : $"{result.Updated} order(s) {verb}; {result.SkippedIds.Count} skipped (not open or not found).";
 
+        await Broadcast(verb, result.Updated, actor, actorId);
+
         return Ok(result);
     }
 
@@ -444,6 +493,8 @@ public class OrdersController : ControllerBase
         result.Message = result.SkippedIds.Count == 0
             ? $"{result.Updated} order(s) reopened."
             : $"{result.Updated} order(s) reopened; {result.SkippedIds.Count} skipped (already open or not found).";
+
+        await Broadcast("reopened", result.Updated, actor, actorId);
 
         return Ok(result);
     }
