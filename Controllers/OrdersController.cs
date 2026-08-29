@@ -43,7 +43,9 @@ public class OrdersController : ControllerBase
     // "someone uploaded N orders" activity popup. The UI sets it false on every batch of a
     // chunked upload and instead calls AnnounceUpload once at the end, so coworkers get one
     // popup rather than one per chunk. A queue-refresh nudge always fires.
+    // Admin-only: staff work the queue, admins bring orders into it.
     [HttpPost("upload")]
+    [Authorize(Roles = nameof(UserRole.Admin))]
     [RequestSizeLimit(100 * 1024 * 1024)]
     public async Task<ActionResult<UploadResponseModel>> Upload(
         [FromForm] List<IFormFile> files, [FromForm] bool announce = true, CancellationToken ct = default)
@@ -127,6 +129,7 @@ public class OrdersController : ControllerBase
     // Fire the single "someone uploaded N orders" activity popup after a chunked upload has
     // sent all of its batches with announce=false. Best-effort, like every hub push.
     [HttpPost("upload/announce")]
+    [Authorize(Roles = nameof(UserRole.Admin))]
     public async Task<IActionResult> AnnounceUpload(AnnounceUploadRequestModel request)
     {
         var (actor, actorId) = CurrentActor();
@@ -252,7 +255,10 @@ public class OrdersController : ControllerBase
         return File(bytes, "application/pdf");
     }
 
+    // Admin-only: correcting parsed order fields is an admin task; staff triage via
+    // priority/notes and ship/cancel/reopen, which stay open to every signed-in user.
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = nameof(UserRole.Admin))]
     public async Task<ActionResult<OrderDetailModel>> Update(
         Guid id, UpdateOrderRequestModel request, CancellationToken ct)
     {
