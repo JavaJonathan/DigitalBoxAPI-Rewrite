@@ -229,7 +229,13 @@ public class OrdersController : ControllerBase
     public async Task<ActionResult<OrderDetailModel>> Get(Guid id, CancellationToken ct)
     {
         var order = await LoadDetail(id, ct);
-        return order is null ? NotFound() : Ok(OrderDetailModel.From(order));
+        if (order is null)
+        {
+            return NotFound();
+        }
+
+        var slip = await LoadSlipInfo(order.PackingSlipId, ct);
+        return Ok(OrderDetailModel.From(order, slip));
     }
 
     [HttpGet("{id:guid}/packing-slip")]
@@ -313,7 +319,8 @@ public class OrdersController : ControllerBase
         await NotifyQueueChanged();
 
         var reloaded = await LoadDetail(id, ct);
-        return Ok(OrderDetailModel.From(reloaded!));
+        var slip = await LoadSlipInfo(reloaded!.PackingSlipId, ct);
+        return Ok(OrderDetailModel.From(reloaded, slip));
     }
 
     // Toggle the urgent-triage flag. Works in any status; no timeline event (too noisy).
@@ -332,7 +339,8 @@ public class OrdersController : ControllerBase
         await _db.SaveChangesAsync(ct);
         await NotifyQueueChanged();
 
-        return Ok(OrderDetailModel.From(order));
+        var slip = await LoadSlipInfo(order.PackingSlipId, ct);
+        return Ok(OrderDetailModel.From(order, slip));
     }
 
     // Set or clear the operator note. Editable in any status (unlike the full edit, which 409s).
@@ -340,12 +348,7 @@ public class OrdersController : ControllerBase
     public async Task<ActionResult<OrderDetailModel>> SetNotes(
         Guid id, SetNotesRequestModel request, CancellationToken ct)
     {
-        var order = await _db.Orders
-            .Include(o => o.LineItems)
-            .Include(o => o.Events)
-            .Include(o => o.PackingSlip)
-            .FirstOrDefaultAsync(o => o.Id == id, ct);
-
+        var order = await LoadDetail(id, ct);
         if (order is null)
         {
             return NotFound();
@@ -358,7 +361,8 @@ public class OrdersController : ControllerBase
         await _db.SaveChangesAsync(ct);
         await NotifyQueueChanged();
 
-        return Ok(OrderDetailModel.From(order));
+        var slip = await LoadSlipInfo(order.PackingSlipId, ct);
+        return Ok(OrderDetailModel.From(order, slip));
     }
 
     [HttpPost("ship")]
@@ -530,8 +534,15 @@ public class OrdersController : ControllerBase
     private Task<Order?> LoadDetail(Guid id, CancellationToken ct) => _db.Orders
         .Include(o => o.LineItems)
         .Include(o => o.Events)
-        .Include(o => o.PackingSlip)
         .FirstOrDefaultAsync(o => o.Id == id, ct);
+
+    // The slip's display metadata only — never its bytes (those stream from
+    // GET /{id}/packing-slip). Keeps the ~80 KB bytea out of every detail/edit response.
+    private async Task<PackingSlipInfoModel> LoadSlipInfo(Guid packingSlipId, CancellationToken ct) =>
+        await _db.PackingSlips
+            .Where(s => s.Id == packingSlipId)
+            .Select(s => new PackingSlipInfoModel { Id = s.Id, FileName = s.FileName, ByteSize = s.ByteSize })
+            .FirstOrDefaultAsync(ct) ?? new PackingSlipInfoModel();
 
     private static bool IsPdf(IFormFile file)
     {

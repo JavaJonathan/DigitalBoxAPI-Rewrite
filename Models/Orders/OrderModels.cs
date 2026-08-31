@@ -71,7 +71,7 @@ public class OrderDetailModel : OrderListItemModel
     public PackingSlipInfoModel PackingSlip { get; set; } = new();
     public IReadOnlyList<OrderEventModel> Events { get; set; } = Array.Empty<OrderEventModel>();
 
-    public static OrderDetailModel From(Order o)
+    public static OrderDetailModel From(Order o, PackingSlipInfoModel packingSlip)
     {
         var baseModel = OrderListItemModel.FromEntity(o);
         return new OrderDetailModel
@@ -92,12 +92,7 @@ public class OrderDetailModel : OrderListItemModel
             ShippedAt = baseModel.ShippedAt,
             CancelledAt = baseModel.CancelledAt,
             LineItems = o.LineItems.OrderBy(li => li.SortOrder).Select(LineItemModel.FromEntity).ToList(),
-            PackingSlip = new PackingSlipInfoModel
-            {
-                Id = o.PackingSlipId,
-                FileName = o.PackingSlip?.FileName ?? string.Empty,
-                ByteSize = o.PackingSlip?.ByteSize ?? 0
-            },
+            PackingSlip = packingSlip,
             Events = o.Events.OrderBy(e => e.OccurredAt)
                 .Select(e => new OrderEventModel
                 {
@@ -154,8 +149,11 @@ public class AnnounceUploadRequestModel
 
 public class ShipOrCancelRequestModel
 {
+    // Cap matches the queue page size (the UI can't select more than one page at a time) and
+    // bounds this fan-out endpoint — it loads every listed order with its events.
     [Required]
     [MinLength(1)]
+    [MaxLength(50, ErrorMessage = "Select at most 50 orders at a time.")]
     public List<Guid> OrderIds { get; set; } = new();
 }
 

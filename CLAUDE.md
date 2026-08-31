@@ -9,7 +9,8 @@ The DigitalBox API — a from-scratch rewrite of the old Node/Express `DigitalBo
 warehouse-fulfillment tool for a multi-marketplace reseller (Amazon / eBay / Walmart /
 Shopify). Warehouse staff **upload packing-slip PDFs**, the API parses each into an order
 with line items, and staff search / filter / ship / cancel from the React UI
-(`DigitalBoxUI`, separate repo).
+(`DigitalBoxUI`, separate repo). Volume: ~1000 orders/week in, ~5000 open in the queue at once
+(see **Cost awareness** for what the infra is sized for).
 
 The rewrite deliberately drops the old design's Google Drive dependency, its JSON-file
 "database", and its shared-Google-identity auth. Architecture mirrors the
@@ -190,6 +191,20 @@ on the instance: `docker run --rm --env-file /etc/digitalbox-api.env <image> cre
 This runs on deliberately small infra: one shared RDS Postgres, a t3.micro-class EC2 box,
 ECR, and CloudWatch. None of it autoscales. Write code with these in mind — none of this
 means dropping features, just not spending money on things we don't need:
+
+**Expected scale (what "small infra" is sized for, re-verified 2026-08-29 against real data):**
+~1000 orders/week ingested (one PDF each), **~5000 orders open in the queue** at steady state,
+~1000 ship/cancel/upload actions/week. Uploads arrive in batches up to ~1000 (a week dropped at
+once) — never one 5000-file dump. Real slips measured ~77 KB avg / ~90 KB max; the `bytea` is
+TOAST-stored (`attstorage=x`) so list/queue queries never read a byte of it. This is a
+genuinely small workload — the queue query is an indexed scan of ≤5000 narrow rows, and
+Postgres has years of runway on a `db.t4g.micro` at 10–20× this. **The one thing that grows
+without bound is RDS storage: ~4 GB/year, ~95% of it PDF `bytea`, high-water-mark billed
+forever.** That — not query load — is what the `S3PackingSlipStore` swap is for (do it around
+year 2 / ~8–10 GB). Non-blob growth (orders + line items + events + the `SearchText` GIN index)
+is only ~100–150 MB/year and stays effectively flat after the S3 move. Incremental AWS cost
+holds at ~$5–15/mo co-located on Henderson's infra (mostly a possible t3.small RAM bump for two
+.NET runtimes in 1 GB — a co-tenancy constraint, not a DigitalBox-scale one).
 
 - **RDS storage never shrinks** (high-water-mark billing) and every byte is doubled by
   backups. Don't persist data a query doesn't need: no denormalized/derived columns beyond
