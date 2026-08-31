@@ -149,11 +149,11 @@ public class AnnounceUploadRequestModel
 
 public class ShipOrCancelRequestModel
 {
-    // Cap matches the queue page size (the UI can't select more than one page at a time) and
-    // bounds this fan-out endpoint — it loads every listed order with its events.
+    // Cap matches the largest queue/history page size (the UI can't select more than one page
+    // at a time) and bounds this fan-out endpoint — it loads every listed order with its events.
     [Required]
     [MinLength(1)]
-    [MaxLength(50, ErrorMessage = "Select at most 50 orders at a time.")]
+    [MaxLength(100, ErrorMessage = "Select at most 100 orders at a time.")]
     public List<Guid> OrderIds { get; set; } = new();
 }
 

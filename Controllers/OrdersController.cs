@@ -145,7 +145,7 @@ public class OrdersController : ControllerBase
         [FromQuery] string status = nameof(OrderStatus.Open),
         [FromQuery] string sort = "shipDate",
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 50,
+        [FromQuery] int pageSize = 25,
         CancellationToken ct = default)
     {
         if (!Enum.TryParse<OrderStatus>(status, ignoreCase: true, out var statusEnum))
