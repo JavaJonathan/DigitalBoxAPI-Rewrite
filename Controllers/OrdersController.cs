@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text;
 using DigitalBoxApi.Data;
 using DigitalBoxApi.Entities;
 using DigitalBoxApi.Models.Orders;
@@ -6,6 +7,7 @@ using DigitalBoxApi.Realtime;
 using DigitalBoxApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -47,6 +49,7 @@ public class OrdersController : ControllerBase
     [HttpPost("upload")]
     [Authorize(Roles = nameof(UserRole.Admin))]
     [RequestSizeLimit(100 * 1024 * 1024)]
+    [EnableRateLimiting("upload")]
     public async Task<ActionResult<UploadResponseModel>> Upload(
         [FromForm] List<IFormFile> files, [FromForm] bool announce = true, CancellationToken ct = default)
     {
@@ -102,7 +105,41 @@ public class OrdersController : ControllerBase
                 await stream.ReadExactlyAsync(bytes, ct);
             }
 
-            var result = await _ingestion.IngestAsync(file.FileName, bytes, ct);
+            // Magic-byte check: extension and Content-Type are both client-controlled, so verify
+            // the bytes actually start a PDF before handing them to the parser.
+            if (!HasPdfMagic(bytes))
+            {
+                response.Errors++;
+                response.Files.Add(new UploadFileResultModel
+                {
+                    FileName = file.FileName, Outcome = "error", Message = "Not a PDF."
+                });
+                continue;
+            }
+
+            UploadFileResultModel result;
+            try
+            {
+                result = await _ingestion.IngestAsync(file.FileName, bytes, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Each file is its own unit (CLAUDE.md) — an unexpected failure on one must not
+                // sink the rest of the batch. IngestAsync already handles parser + DbUpdate
+                // errors internally; this is the last-resort net.
+                _logger.LogError(ex, "Unhandled error ingesting uploaded slip {FileName}.", file.FileName);
+                response.Errors++;
+                response.Files.Add(new UploadFileResultModel
+                {
+                    FileName = file.FileName, Outcome = "error", Message = "This file could not be processed."
+                });
+                continue;
+            }
+
             response.Files.Add(result);
             switch (result.Outcome)
             {
@@ -257,7 +294,18 @@ public class OrdersController : ControllerBase
             return NotFound();
         }
 
-        Response.Headers.ContentDisposition = $"inline; filename=\"{slip.FileName}\"";
+        // slip.FileName is the raw client-supplied upload name. Never interpolate it unsanitized
+        // (CR/LF/quotes break out of the header); serve as an attachment, not inline; keep the
+        // full name available via the RFC 5987 filename* form.
+        var asciiName = SanitizeAsciiFileName(slip.FileName);
+        if (asciiName.Length == 0)
+        {
+            asciiName = $"slip-{id}.pdf";
+        }
+
+        Response.Headers.ContentDisposition =
+            $"attachment; filename=\"{asciiName}\"; filename*=UTF-8''{Uri.EscapeDataString(slip.FileName)}";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
         return File(bytes, "application/pdf");
     }
 
@@ -395,7 +443,7 @@ public class OrdersController : ControllerBase
         {
             await _hub.Clients.All.Activity(new ActivityEvent(
                 Guid.NewGuid(), actorId ?? Guid.Empty, actor, verb, count, DateTime.UtcNow));
-            await _hub.Clients.All.QueueChanged();
+            await _hub.Clients.All.QueueChanged(actorId ?? Guid.Empty);
         }
         catch (Exception ex)
         {
@@ -403,12 +451,13 @@ public class OrdersController : ControllerBase
         }
     }
 
-    // Nudge connected queues to re-fetch after a silent edit (no activity popup).
+    // Nudge connected queues to re-fetch after a silent edit (no activity popup). Stamps the
+    // acting user's id so their own browser ignores the echo (it refreshes explicitly).
     private async Task NotifyQueueChanged()
     {
         try
         {
-            await _hub.Clients.All.QueueChanged();
+            await _hub.Clients.All.QueueChanged(CurrentActor().Id ?? Guid.Empty);
         }
         catch (Exception ex)
         {
@@ -544,6 +593,7 @@ public class OrdersController : ControllerBase
             .Select(s => new PackingSlipInfoModel { Id = s.Id, FileName = s.FileName, ByteSize = s.ByteSize })
             .FirstOrDefaultAsync(ct) ?? new PackingSlipInfoModel();
 
+    // Cheap pre-filter on the client-declared name / type, before the file is even read.
     private static bool IsPdf(IFormFile file)
     {
         if (file.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
@@ -552,5 +602,33 @@ public class OrdersController : ControllerBase
         }
 
         return file.ContentType is "application/pdf" or "application/x-pdf";
+    }
+
+    // Content check: a PDF begins with "%PDF-", occasionally after a few bytes of leading junk
+    // (a BOM, stray whitespace) that some exporters emit. Scan a small head window for it.
+    private static bool HasPdfMagic(ReadOnlySpan<byte> bytes)
+    {
+        ReadOnlySpan<byte> marker = "%PDF-"u8;
+        var window = bytes.Length > 1024 ? bytes[..1024] : bytes;
+        return window.IndexOf(marker) >= 0;
+    }
+
+    // Keep only characters safe in a quoted Content-Disposition filename= token: drop quotes,
+    // backslashes, CR/LF, control chars, and anything non-ASCII (the filename* form carries the
+    // full Unicode name).
+    private static string SanitizeAsciiFileName(string raw)
+    {
+        var sb = new StringBuilder(raw.Length);
+        foreach (var ch in raw)
+        {
+            if (ch is '"' or '\\' or '\r' or '\n' || char.IsControl(ch) || ch > '\x7E')
+            {
+                continue;
+            }
+
+            sb.Append(ch);
+        }
+
+        return sb.ToString().Trim();
     }
 }

@@ -18,6 +18,8 @@ WORKDIR /app
 COPY --from=build /app .
 
 ENV ASPNETCORE_URLS=http://+:8080
+# Explicit rather than relying on the implicit default, so appsettings.Production.json loads.
+ENV ASPNETCORE_ENVIRONMENT=Production
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "DigitalBoxApi.dll"]

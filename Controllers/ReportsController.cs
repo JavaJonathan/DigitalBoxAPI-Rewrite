@@ -62,6 +62,17 @@ public class ReportsController : ControllerBase
         try
         {
             await using var stream = file.OpenReadStream();
+
+            // Content check: extension / Content-Type are client-controlled. A NUL byte in the
+            // head means this is a binary file (xlsx, image, …), not a text CSV.
+            var head = new byte[(int)Math.Min(8192, file.Length)];
+            var read = await stream.ReadAsync(head, ct);
+            if (Array.IndexOf(head, (byte)0, 0, read) >= 0)
+            {
+                return BadRequest(new { message = "That doesn't look like a text CSV file." });
+            }
+
+            stream.Position = 0;
             rows = InventoryCsv.ReadRows(stream, skuColumn, titleColumn, qtyColumn, MaxCsvRows);
         }
         catch (InvalidOperationException ex)

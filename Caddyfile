@@ -6,4 +6,21 @@ api.digitalbox.example.com {
 	# Proxies the API and the SignalR hub at /hub/activity — Caddy passes WebSocket
 	# upgrades through reverse_proxy transparently, no extra matcher needed.
 	reverse_proxy localhost:8080
+
+	# Reject oversized uploads at the edge, before they reach Kestrel and the 100 MB
+	# RequestSizeLimit on POST /api/orders/upload.
+	request_body {
+		max_size 100MB
+	}
+
+	# Security headers. HSTS lives here because Caddy owns TLS (the container only speaks
+	# HTTP); the app sets the nosniff/frame/referrer set too — this is defence in depth and
+	# covers anything served straight from the proxy.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
 }

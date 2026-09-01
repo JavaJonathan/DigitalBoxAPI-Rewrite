@@ -4,6 +4,7 @@ using DigitalBoxApi.Models.Auth;
 using DigitalBoxApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace DigitalBoxApi.Controllers;
@@ -34,6 +35,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("login")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth")]
     public async Task<ActionResult<LoginResponseModel>> Login(LoginRequestModel request, CancellationToken ct)
     {
         var clientKey = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";

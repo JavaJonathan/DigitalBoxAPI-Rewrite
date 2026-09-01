@@ -76,9 +76,12 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
         }
         catch (Exception ex)
         {
+            // The note is persisted as OrderEvent.Detail and returned in the upload response, so
+            // it must never carry ex.Message / stack detail (CLAUDE.md). Log the real exception;
+            // hand back a generic note.
             _logger.LogWarning(ex, "Packing-slip parse threw.");
             return new ParsedSlip(string.Empty, null, Array.Empty<ParsedLineItem>(),
-                ParseConfidence.None, $"Parser error: {ex.Message}");
+                ParseConfidence.None, "Auto-parse failed — enter this order's details manually.");
         }
     }
 

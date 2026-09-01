@@ -23,6 +23,8 @@ public interface IActivityClient
     // A coworker shipped / cancelled / reopened / uploaded something.
     Task Activity(ActivityEvent evt);
 
-    // The open-order queue changed; clients viewing it should re-fetch.
-    Task QueueChanged();
+    // The open-order queue changed; clients viewing it should re-fetch. Carries the acting
+    // user's id (Guid.Empty when unknown) so the browser that initiated the change can skip
+    // its own echo — it already refreshes explicitly right after the HTTP call returns.
+    Task QueueChanged(Guid actorUserId);
 }
