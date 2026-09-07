@@ -180,6 +180,19 @@ builder.Services.AddRateLimiter(options =>
         opt.QueueLimit = 4;
     });
 
+    // Order-lookup: each admin lookup can fan out to the ShipStation API, which has its own
+    // rate ceiling. A generous per-IP cap keeps a scripted caller from burning that quota
+    // while never troubling a person clicking Search.
+    options.AddPolicy("lookup", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
     // Login: a per-IP request cap on top of LoginThrottle (which owns the account-lockout 423
     // semantics). Stops rapid scripted guessing before it reaches the handler; loose enough for
     // a morning login rush from one office IP.
@@ -216,6 +229,11 @@ builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddSingleton<IPackingSlipParser, PdfPigPackingSlipParser>();
 builder.Services.AddScoped<IPackingSlipStore, PostgresPackingSlipStore>();
 builder.Services.AddScoped<OrderIngestionService>();
+
+// Admin order-lookup (Controllers/LookupController). ShipStationClient degrades to a no-op when
+// no credentials are configured — the DB lookup is the primary path.
+builder.Services.AddHttpClient<ShipStationClient>();
+builder.Services.AddScoped<LookupService>();
 
 // Realtime presence + activity feed (Realtime/PresenceHub, mapped below). SignalR ships in the
 // Web shared framework — no package reference. The tracker is process-local (see its remarks).

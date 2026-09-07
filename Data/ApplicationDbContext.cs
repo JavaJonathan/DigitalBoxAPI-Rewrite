@@ -14,6 +14,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<PackingSlip> PackingSlips => Set<PackingSlip>();
     public DbSet<OrderEvent> OrderEvents => Set<OrderEvent>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<InventoryUpload> InventoryUploads => Set<InventoryUpload>();
+    public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -88,6 +90,26 @@ public class ApplicationDbContext : DbContext
             entity.Property(u => u.PasswordHash).IsRequired();
             entity.Property(u => u.Role).HasConversion<string>().HasMaxLength(16);
             entity.HasIndex(u => u.Username).IsUnique();
+        });
+
+        builder.Entity<InventoryUpload>(entity =>
+        {
+            entity.Property(u => u.Kind).HasConversion<string>().HasMaxLength(32);
+            entity.Property(u => u.FileName).HasMaxLength(400);
+            entity.Property(u => u.UploadedBy).HasMaxLength(120);
+            // One "current" snapshot per kind.
+            entity.HasIndex(u => u.Kind).IsUnique();
+        });
+
+        builder.Entity<InventoryItem>(entity =>
+        {
+            entity.Property(i => i.Kind).HasConversion<string>().HasMaxLength(32);
+            entity.Property(i => i.Sku).HasMaxLength(128);
+            entity.Property(i => i.SkuRaw).HasMaxLength(128);
+            entity.Property(i => i.Title).HasColumnType("text");
+            // Serves the per-line-item badge lookup in GET /api/lookup/order
+            // (LookupService checks each order SKU against InStock then PurchaseOrder).
+            entity.HasIndex(i => new { i.Kind, i.Sku });
         });
     }
 }

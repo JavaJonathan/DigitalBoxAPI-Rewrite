@@ -48,3 +48,14 @@ public enum OrderEventType
     // A shipped or cancelled order was undone back to Open.
     Reopened
 }
+
+// The two reference lists the admin order-lookup screen cross-references line items against.
+// One "current" snapshot of each is held server-side and replaced on re-upload.
+public enum InventoryKind
+{
+    // SKUs physically on hand.
+    InStock = 0,
+
+    // SKUs on an open purchase order — incoming, not yet in stock.
+    PurchaseOrder
+}

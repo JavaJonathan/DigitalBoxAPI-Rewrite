@@ -29,10 +29,15 @@ public static class InventoryCsv
         return 0;
     }
 
+    // SKU-only overload for purchase-order lists, which frequently carry nothing but a SKU
+    // column. Title comes back empty and OnHand 0 — a PO list only signals "this SKU is on order".
+    public static List<InventoryRow> ReadRows(Stream csv, string skuHeader, int maxRows) =>
+        ReadRows(csv, skuHeader, titleHeader: null, qtyHeader: null, maxRows);
+
     // Reads mapped rows. Throws InvalidOperationException if a mapped column name isn't in the
-    // file, or if the row count exceeds maxRows.
+    // file, or if the row count exceeds maxRows. titleHeader / qtyHeader may be null (SKU-only list).
     public static List<InventoryRow> ReadRows(
-        Stream csv, string skuHeader, string titleHeader, string qtyHeader, int maxRows)
+        Stream csv, string skuHeader, string? titleHeader, string? qtyHeader, int maxRows)
     {
         using var reader = new StreamReader(csv);
         using var csvReader = new CsvReader(reader, Config());
@@ -55,8 +60,8 @@ public static class InventoryCsv
         }
 
         var skuIdx = IndexOf(skuHeader);
-        var titleIdx = IndexOf(titleHeader);
-        var qtyIdx = IndexOf(qtyHeader);
+        var titleIdx = string.IsNullOrWhiteSpace(titleHeader) ? -1 : IndexOf(titleHeader);
+        var qtyIdx = string.IsNullOrWhiteSpace(qtyHeader) ? -1 : IndexOf(qtyHeader);
 
         var rows = new List<InventoryRow>();
         while (csvReader.Read())
@@ -68,8 +73,8 @@ public static class InventoryCsv
 
             rows.Add(new InventoryRow(
                 Sku: csvReader.GetField(skuIdx)?.Trim() ?? string.Empty,
-                Title: csvReader.GetField(titleIdx)?.Trim() ?? string.Empty,
-                OnHand: ParseOnHand(csvReader.GetField(qtyIdx))));
+                Title: titleIdx >= 0 ? csvReader.GetField(titleIdx)?.Trim() ?? string.Empty : string.Empty,
+                OnHand: qtyIdx >= 0 ? ParseOnHand(csvReader.GetField(qtyIdx)) : 0));
         }
 
         return rows;

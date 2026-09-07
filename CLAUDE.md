@@ -116,6 +116,33 @@ Shipped/Cancelled → Open, appends `Reopened`, keeps priority/notes).
 `GET /` (list), `POST /` (`{username,displayName}` → user + one-time `generatedPassword`),
 `POST /{id}/reset-password`, `POST /{id}/deactivate` + `/activate`, `PUT /{id}` (rename).
 
+**Order lookup** (`Controllers/LookupController.cs`, `api/lookup`) — the customer-service
+"where's this order?" screen, a rewrite of the standalone `CustomerServiceApp`
+(`C:\Users\jonat\Documents\ClaudeProjects\CustomerServiceApp`, now superseded). `[Authorize]` +
+**`[HideFromNonAdmins]`** (`Filters/`): a signed-in non-admin gets **404, not 403**, so the
+feature reads as non-existent — deliberately unlike `UsersController` / `orders/upload`, which
+still 403 (adding another hidden endpoint = add the attribute; a new visible admin endpoint =
+call it out). Behind the `"lookup"` rate-limit policy (external calls). Endpoints:
+`GET /order?orderNumber=` (DB order by case-insensitive number + per-line-item badge against the
+inventory snapshots + parallel ShipStation enrichment when configured; `{ found:false }` when
+neither has it), `GET /inventory` (snapshot metadata), `POST /inventory` (multipart CSV +
+`kind` (`inStock`|`purchaseOrders`) + column mapping — replaces that kind's snapshot in one
+transaction). `Services/LookupService.cs` is the port of the old `OrderSearch.jsx` /
+`ShipStationOrderLookup.jsx` / `skuLookup.js` status logic.
+
+**ShipStation** (`Services/ShipStationClient.cs`, typed `HttpClient`) — the DB stores neither
+tracking numbers nor ship-to addresses, so ShipStation stays the source for those (replaces the
+old Express proxy; the credential now lives in config, not checked-in JS). Config section
+`ShipStation:{ApiKey,ApiSecret,BaseUrl}` — **degrades gracefully when unset** (`IsConfigured`
+false → lookup returns DB-only with `shipStationConfigured:false`). This is a *deliberate*
+departure from the fail-fast `Jwt:Key` / `Cors` checks: ShipStation is optional enrichment, the
+DB lookup is the primary path and must not be blocked by a missing key.
+
+**Inventory snapshots** (`Entities/InventoryUpload` + `InventoryItem`) — one "current" reference
+list per `InventoryKind` (`InStock` / `PurchaseOrder`), replaced (not appended) on re-upload, so
+storage stays flat (~1–2 MB/kind). `InventoryUpload` is the header (filename / row count /
+uploader); `InventoryItem` rows are indexed `(Kind, Sku)` for the badge lookup.
+
 **Shippable Items report** (`Controllers/ReportsController.cs`, `api/reports/shippable-items`):
 multipart CSV upload + `skuColumn`/`titleColumn`/`qtyColumn` form fields (UI maps them),
 cross-references against open-order line items, returns a JSON preview (UI builds the download
@@ -144,7 +171,9 @@ Hold new code to these rules so the same gaps don't creep back:
 - **Everything is `[Authorize]` by default.** Only `HealthController` and `AuthController.Login`
   are `[AllowAnonymous]`. Adding another anonymous endpoint, or a role check looser than the
   route it lives on, must be called out in the PR with the reason. `[Authorize(Roles=Admin)]`
-  guards all of `UsersController` — keep user administration admin-only.
+  guards all of `UsersController` — keep user administration admin-only. `LookupController` uses
+  `[Authorize]` + `[HideFromNonAdmins]` (404 for non-admins instead of 403) — the feature is
+  meant to be invisible, not merely forbidden.
 - **Never return exception detail to the client.** Log the exception, return the generic
   `{ message }` shape. No `ex.Message`, stack traces, SQL, or file paths in a response body or a
   stored field the UI renders (the parser note and the report errors were both leaking this).
@@ -178,7 +207,9 @@ Henderson's. Target: EC2 + Docker behind Caddy (auto-HTTPS), RDS Postgres, image
 deploy on `master` push through GitHub Actions OIDC + SSM Run Command (no SSH). Secrets in
 SSM Parameter Store `/digitalbox/prod/*` → `/etc/digitalbox-api.env` → `docker run --env-file`
 (`ConnectionStrings__Default`, `Jwt__Key` (>= 32 bytes or startup fails), `Cors__AllowedOrigin`,
-optionally `ForwardedHeaders__KnownNetworks` — no `Auth__*` any more).
+optionally `ForwardedHeaders__KnownNetworks`, and — for the order-lookup screen —
+`ShipStation__ApiKey` / `ShipStation__ApiSecret` (optional; the lookup degrades to DB-only when
+absent). No `Auth__*` any more).
 The workflow needs repo `vars`: `AWS_REGION`, `ECR_REPOSITORY`, `EC2_INSTANCE_ID`,
 `AWS_DEPLOY_ROLE_ARN`. Migrations to RDS: `dotnet ef migrations bundle --self-contained
 -r linux-x64` run from the instance (RDS isn't publicly reachable), with
