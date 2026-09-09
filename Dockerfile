@@ -20,6 +20,12 @@ COPY --from=build /app .
 ENV ASPNETCORE_URLS=http://+:8080
 # Explicit rather than relying on the implicit default, so appsettings.Production.json loads.
 ENV ASPNETCORE_ENVIRONMENT=Production
+# GC tuning for a small co-tenant container. The 1 GB EC2 box also runs the Henderson API, so
+# trade a little throughput (irrelevant at this scale) for a lower footprint: Workstation GC
+# (single heap, ~30-40 MB lower baseline than Server GC) + a nudge to hand freed segments back
+# to the OS sooner. The container's --memory cap makes .NET size its heap to the cgroup anyway.
+ENV DOTNET_gcServer=0
+ENV DOTNET_GCConserveMemory=5
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "DigitalBoxApi.dll"]

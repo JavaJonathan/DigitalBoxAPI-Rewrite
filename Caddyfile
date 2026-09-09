@@ -1,11 +1,12 @@
-# Reverse proxy + automatic HTTPS for the DigitalBox API.
-# Replace the site address with the real api. domain once DNS is pointed at the instance's
-# Elastic IP. A *.sslip.io host (e.g. <dashed-ip>.sslip.io) works as a stopgap; Let's Encrypt
-# will NOT issue for *.amazonaws.com hostnames.
-api.digitalbox.example.com {
+# Reverse proxy + automatic HTTPS for the DigitalBox API. Co-located on the Henderson box;
+# this block lives alongside Henderson's api.hendersonsoftwarelabs.com block in the box's
+# /etc/caddy/Caddyfile. DNS (Cloudflare): digitalbox-api A record -> 100.57.201.123, DNS-only
+# (grey cloud) so Caddy can complete the ACME challenge directly.
+digitalbox-api.hendersonsoftwarelabs.com {
 	# Proxies the API and the SignalR hub at /hub/activity — Caddy passes WebSocket
 	# upgrades through reverse_proxy transparently, no extra matcher needed.
-	reverse_proxy localhost:8080
+	# Host port 8081: the co-located Henderson API already owns 8080 on this box.
+	reverse_proxy localhost:8081
 
 	# Reject oversized uploads at the edge, before they reach Kestrel and the 100 MB
 	# RequestSizeLimit on POST /api/orders/upload.
