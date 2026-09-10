@@ -28,13 +28,13 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 // In production Caddy terminates TLS and forwards to this app over plain HTTP. Without honoring
 // X-Forwarded-For every request appears to originate from the proxy, so the per-IP login lockout
 // (Services/LoginThrottle) collapses into one global bucket an attacker can use to lock out every
-// user — and every security log line records the proxy's address instead of the client's. Trust
+// user, and every security log line records the proxy's address instead of the client's. Trust
 // the forwarded headers only from the proxy address(es) below, never unconditionally.
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
     // One proxy hop (Caddy). Bump via ForwardedHeaders__ForwardLimit if another proxy (an ALB,
-    // Cloudflare) is ever put in front — and add its egress range to KnownNetworks too.
+    // Cloudflare) is ever put in front, and add its egress range to KnownNetworks too.
     options.ForwardLimit = builder.Configuration.GetValue<int?>("ForwardedHeaders:ForwardLimit") ?? 1;
     options.KnownProxies.Clear();
     options.KnownNetworks.Clear();
@@ -66,7 +66,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 
 // The JWT signing key is the entire strength of HS256 auth: a weak or guessable value lets anyone
-// forge a token — including an admin one. Fail fast rather than boot with one.
+// forge a token, including an admin one. Fail fast rather than boot with one.
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtKey = jwtSection["Key"];
 const int MinJwtKeyBytes = 32;
@@ -151,7 +151,7 @@ builder.Services.AddAuthorization(options =>
 
 // Request throttling. UseForwardedHeaders runs first in the pipeline, so every partition here
 // keys off the real client IP, not Caddy's. See CLAUDE.md "Fan-out endpoints are rate-limit
-// candidates" — this is that limiter.
+// candidates"; this is that limiter.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -231,12 +231,12 @@ builder.Services.AddScoped<IPackingSlipStore, PostgresPackingSlipStore>();
 builder.Services.AddScoped<OrderIngestionService>();
 
 // Admin order-lookup (Controllers/LookupController). ShipStationClient degrades to a no-op when
-// no credentials are configured — the DB lookup is the primary path.
+// no credentials are configured; the DB lookup is the primary path.
 builder.Services.AddHttpClient<ShipStationClient>();
 builder.Services.AddScoped<LookupService>();
 
 // Realtime presence + activity feed (Realtime/PresenceHub, mapped below). SignalR ships in the
-// Web shared framework — no package reference. The tracker is process-local (see its remarks).
+// Web shared framework, with no package reference. The tracker is process-local (see its remarks).
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IPresenceTracker, PresenceTracker>();
 
@@ -244,10 +244,10 @@ var configuredOrigin = builder.Configuration["Cors:AllowedOrigin"];
 if (string.IsNullOrWhiteSpace(configuredOrigin) && !builder.Environment.IsDevelopment())
 {
     // Outside Development, silently falling back to the localhost dev origin would lock the
-    // deployed UI out of the API with no obvious cause. Fail fast instead — same pattern as
+    // deployed UI out of the API with no obvious cause. Fail fast instead, same pattern as
     // the Jwt:Key check above.
     throw new InvalidOperationException(
-        "Cors:AllowedOrigin must be set outside Development (env Cors__AllowedOrigin) — " +
+        "Cors:AllowedOrigin must be set outside Development (env Cors__AllowedOrigin); " +
         "it is the deployed SPA origin the API allows.");
 }
 var allowedOrigin = string.IsNullOrWhiteSpace(configuredOrigin)
@@ -370,7 +370,7 @@ if (args.Length > 0 && args[0] == "dump-pdf")
 // auth, the login throttle, the rate limiter). Rewrites them from the proxy's forwarded headers.
 app.UseForwardedHeaders();
 
-// Baseline security headers on every response. No HSTS / HTTPS redirect here — Caddy terminates
+// Baseline security headers on every response. No HSTS / HTTPS redirect here; Caddy terminates
 // TLS in front and the container only speaks HTTP; Caddy adds HSTS. No Cross-Origin-Resource-Policy
 // either: the SPA is a separate site and CORS (single allowed origin) is the real access control.
 app.Use(async (context, next) =>

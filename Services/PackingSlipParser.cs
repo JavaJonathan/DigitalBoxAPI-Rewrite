@@ -69,7 +69,7 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
             var confidence = ScoreConfidence(orderNumber, lineItems);
             string? note = confidence == ParseConfidence.Good
                 ? null
-                : $"Auto-parse needs a check — order #: {(orderNumber.Length > 0 ? orderNumber : "missing")}, " +
+                : $"Auto-parse needs a check. Order #: {(orderNumber.Length > 0 ? orderNumber : "missing")}, " +
                   $"{lineItems.Count} line item(s).";
 
             return new ParsedSlip(orderNumber, shipDate, lineItems, confidence, note);
@@ -81,7 +81,7 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
             // hand back a generic note.
             _logger.LogWarning(ex, "Packing-slip parse threw.");
             return new ParsedSlip(string.Empty, null, Array.Empty<ParsedLineItem>(),
-                ParseConfidence.None, "Auto-parse failed — enter this order's details manually.");
+                ParseConfidence.None, "Auto-parse failed. Enter this order's details manually.");
         }
     }
 
@@ -133,7 +133,7 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
         foreach (var ch in raw.Trim())
         {
             // Collapse every dash-like code point onto ASCII '-' (packing slips are riddled
-            // with U+00AD soft hyphens inside order numbers — the old parser's whole "%C2%AD"
+            // with U+00AD soft hyphens inside order numbers; the old parser's whole "%C2%AD"
             // dance). Drop other control/format characters.
             if (ch is '­' or '‐' or '‑' or '‒' or '–' or '—'
                 or '―' or '−')

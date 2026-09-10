@@ -139,7 +139,7 @@ public class UploadResponseModel
     public List<UploadFileResultModel> Files { get; set; } = new();
 }
 
-// Body of POST /api/orders/upload/announce — the one summary activity broadcast a chunked
+// Body of POST /api/orders/upload/announce: the one summary activity broadcast a chunked
 // upload fires after all its batches have been sent with announce=false.
 public class AnnounceUploadRequestModel
 {
@@ -150,7 +150,7 @@ public class AnnounceUploadRequestModel
 public class ShipOrCancelRequestModel
 {
     // Cap matches the largest queue/history page size (the UI can't select more than one page
-    // at a time) and bounds this fan-out endpoint — it loads every listed order with its events.
+    // at a time) and bounds this fan-out endpoint; it loads every listed order with its events.
     [Required]
     [MinLength(1)]
     [MaxLength(100, ErrorMessage = "Select at most 100 orders at a time.")]

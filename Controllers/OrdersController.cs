@@ -98,7 +98,7 @@ public class OrdersController : ControllerBase
             }
 
             // Length is known from the multipart headers, so read straight into a right-sized
-            // buffer — no MemoryStream growth + second .ToArray() copy (was ~2x the file in RAM).
+            // buffer, no MemoryStream growth + second .ToArray() copy (was ~2x the file in RAM).
             var bytes = new byte[file.Length];
             await using (var stream = file.OpenReadStream())
             {
@@ -128,7 +128,7 @@ public class OrdersController : ControllerBase
             }
             catch (Exception ex)
             {
-                // Each file is its own unit (CLAUDE.md) — an unexpected failure on one must not
+                // Each file is its own unit (CLAUDE.md); an unexpected failure on one must not
                 // sink the rest of the batch. IngestAsync already handles parser + DbUpdate
                 // errors internally; this is the last-resort net.
                 _logger.LogError(ex, "Unhandled error ingesting uploaded slip {FileName}.", file.FileName);
@@ -585,7 +585,7 @@ public class OrdersController : ControllerBase
         .Include(o => o.Events)
         .FirstOrDefaultAsync(o => o.Id == id, ct);
 
-    // The slip's display metadata only — never its bytes (those stream from
+    // The slip's display metadata only, never its bytes (those stream from
     // GET /{id}/packing-slip). Keeps the ~80 KB bytea out of every detail/edit response.
     private async Task<PackingSlipInfoModel> LoadSlipInfo(Guid packingSlipId, CancellationToken ct) =>
         await _db.PackingSlips

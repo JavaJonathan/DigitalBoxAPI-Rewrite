@@ -76,7 +76,7 @@ public class LookupResultModel
     public LookupDigitalBoxModel? DigitalBox { get; set; }
     public LookupShipStationModel? ShipStation { get; set; }
 
-    // False when no ShipStation credentials are configured — the UI explains the DB-only result.
+    // False when no ShipStation credentials are configured; the UI explains the DB-only result.
     public bool ShipStationConfigured { get; set; }
 
     // Generic message when ShipStation is configured but the call failed (never the raw error).

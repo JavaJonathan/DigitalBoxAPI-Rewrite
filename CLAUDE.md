@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-The DigitalBox API — a from-scratch rewrite of the old Node/Express `DigitalBoxApi`
+The DigitalBox API: a from-scratch rewrite of the old Node/Express `DigitalBoxApi`
 (`C:\Users\jonat\Documents\JSProjects\DigitalBoxAPI`). DigitalBox is an internal
 warehouse-fulfillment tool for a multi-marketplace reseller (Amazon / eBay / Walmart /
 Shopify). Warehouse staff **upload packing-slip PDFs**, the API parses each into an order
@@ -14,7 +14,7 @@ with line items, and staff search / filter / ship / cancel from the React UI
 
 The rewrite deliberately drops the old design's Google Drive dependency, its JSON-file
 "database", and its shared-Google-identity auth. Architecture mirrors the
-**Henderson Software Labs** project (`C:\Users\jonat\Documents\HendersonSoftwareLabs`) —
+**Henderson Software Labs** project (`C:\Users\jonat\Documents\HendersonSoftwareLabs`);
 read that repo's `CLAUDE.md` for the deployment model this one follows.
 
 ## Commands
@@ -32,7 +32,7 @@ No automated test suite.
 
 ### Local prerequisites
 
-A running local PostgreSQL, plus two `dotnet user-secrets` values (never committed —
+A running local PostgreSQL, plus two `dotnet user-secrets` values (never committed;
 `appsettings.json` has placeholders only):
 
 ```bash
@@ -42,30 +42,30 @@ dotnet user-secrets set "Jwt:Key" "<random 32+ byte string>"   # >= 32 bytes: st
 
 Then `dotnet ef database update` and `dotnet run -- create-admin <user> "<name>"` to get a login.
 `Jwt:AccessTokenHours` defaults to 8. `Program.cs` refuses to start if `Jwt:Key` decodes to
-fewer than 32 bytes (HS256 is only as strong as this key) — `openssl rand -base64 48` for prod.
+fewer than 32 bytes (HS256 is only as strong as this key); use `openssl rand -base64 48` for prod.
 
 ## Architecture
 
 **Stack**: ASP.NET Core 9 Web API, EF Core + `Npgsql.EntityFrameworkCore.PostgreSQL`,
 controllers (no minimal APIs), `UglyToad.PdfPig` for PDF text extraction, `CsvHelper` for the
 inventory-report CSV. Swashbuckle pinned to **9.0.6** (10.x has breaking `Microsoft.OpenApi`
-changes — Henderson gotcha). No ASP.NET Identity — a hand-rolled user table (see Auth below).
+changes; Henderson gotcha). No ASP.NET Identity; instead a hand-rolled user table (see Auth below).
 
 **`Program.cs`** is the composition root: DI + JWT bearer + CORS + Swagger, then two CLI
 command branches (`create-admin`, `dump-pdf`) that run and exit before `app.Run()`, then the
 HTTP pipeline with a global exception handler returning `{ message }`.
 
-**Auth** — per-user accounts (`Entities/User`, `Data` table `Users`). Username-only (no email),
+**Auth**: per-user accounts (`Entities/User`, `Data` table `Users`). Username-only (no email),
 two roles (`User` / `Admin`). `AuthController.Login` looks the user up by lower-cased username,
 requires `IsActive`, PBKDF2-verifies against `PasswordHash` (`Services/PasswordHasher.cs`),
 issues an 8h JWT (`Services/JwtTokenService.cs`, lifetime from `Jwt:AccessTokenHours`) carrying
 `sub`/role/`stamp` claims, applies an in-memory per-IP lockout (`Services/LoginThrottle.cs`,
 **50** failures / 15 min → `423`) and a 400ms delay on failure. The JWT bearer
 `OnTokenValidated` event re-reads the user on **every** request and rejects the token if the
-account is gone, deactivated, or its `SecurityStamp` changed — so deactivation and password
+account is gone, deactivated, or its `SecurityStamp` changed, so deactivation and password
 resets take effect immediately. Passwords are **admin-issued only**: `UsersController`
 (`[Authorize(Roles=Admin)]`) creates users and resets passwords, always returning a
-system-generated passphrase once (`Services/PasswordGenerator.cs`) — there is no self-service
+system-generated passphrase once (`Services/PasswordGenerator.cs`); there is no self-service
 and no set-your-own-password. New accounts are always `User`; **admins are seeded only via
 `dotnet run -- create-admin`**. `UserService` holds the shared normalize/construct helpers.
 Every controller except `HealthController` and `AuthController.Login` is `[Authorize]`.
@@ -73,21 +73,21 @@ Every controller except `HealthController` and `AuthController.Login` is `[Autho
 user; `ActionedBy` / `Actor` keep the display-name snapshot for old rows and renames.
 
 **Data model** (`Data/ApplicationDbContext.cs`, `Entities/`):
-- `Order` — `OrderNumber`, `Marketplace` (enum→string), `ShipDate` (DateOnly?), `Status`
+- `Order`: `OrderNumber`, `Marketplace` (enum→string), `ShipDate` (DateOnly?), `Status`
   (`Open`/`Shipped`/`Cancelled`), `ParseStatus` (`Parsed`/`NeedsReview`/`Failed`), `IsPriority`,
   `Notes` (both feed the queue sort / `SearchText`), `SearchText` (normalized blob of order # +
   item titles/skus + note, GIN `pg_trgm` index), `ActionedBy`, timestamps. Composite index
   `(Status, IsPriority)`.
-- `OrderLineItem` — title / quantity / sku / sortOrder, cascade-deleted with the order.
-- `PackingSlip` — the uploaded PDF bytes in a `bytea` column; `Sha256` is unique and is how
+- `OrderLineItem`: title / quantity / sku / sortOrder, cascade-deleted with the order.
+- `PackingSlip`: the uploaded PDF bytes in a `bytea` column; `Sha256` is unique and is how
   duplicate uploads are rejected. Access goes through `IPackingSlipStore` so the bytes can
   move to S3 later without touching callers.
-- `OrderEvent` — append-only audit (`Created`/`Shipped`/`Cancelled`/`Edited`/`Reopened`). Backs
+- `OrderEvent`: append-only audit (`Created`/`Shipped`/`Cancelled`/`Edited`/`Reopened`). Backs
   the history views. Never set `Id` on a new event added to a tracked `order.Events` (EF emits
-  UPDATE→"affected 0" — the child-PK bug hit twice this project).
-- `User` — login accounts; see **Auth** above. `Users` table, unique lower-cased `Username`.
+  UPDATE→"affected 0"; the child-PK bug hit twice this project).
+- `User`: login accounts; see **Auth** above. `Users` table, unique lower-cased `Username`.
 
-**Ingestion** (`Services/OrderIngestionService.cs`): per uploaded PDF — SHA-256 → dedupe
+**Ingestion** (`Services/OrderIngestionService.cs`): per uploaded PDF, SHA-256 → dedupe
 check → `IPackingSlipParser.Parse` → create Order + line items + slip + `Created` event in
 one `SaveChanges`. Each file is its own unit so one bad file doesn't fail the batch.
 `Confidence.Partial` → `ParseStatus.NeedsReview`; an exception → `Failed` (order still
@@ -96,7 +96,7 @@ created as a stub for manual entry).
 **PDF parsing** (`Services/PackingSlipParser.cs`): PdfPig words → grouped into visual rows by
 Y coordinate → regex anchors for "Order #" / "Ship Date" → locate the line-item table header
 (`Description` + `Qty`) → read rows beneath it until a totals/footer marker. This replaces the
-old `ContentHelper.js` token/URL-encoding state machine. It is heuristic — expect to tune
+old `ContentHelper.js` token/URL-encoding state machine. It is heuristic; expect to tune
 `FindLineItems` / the regexes against real slips per marketplace; use `dump-pdf`.
 
 **Marketplace detection** (`Services/MarketplaceDetector.cs`): order-number shape heuristics
@@ -104,41 +104,41 @@ ported from the old `HttpHelper.filterForMarketplace`. Stored on the order at cr
 operator can override via `PUT /api/orders/{id}`.
 
 **Endpoints** (`Controllers/OrdersController.cs`): `POST /upload` (multipart, ≤50 files),
-`GET /` (q / marketplace / **priority** / status / sort / page — priority orders lead the Open
+`GET /` (q / marketplace / **priority** / status / sort / page; priority orders lead the Open
 queue under every sort; every branch ends `.ThenBy(o => o.Id)` for stable pagination), `GET /{id}`,
-`GET /{id}/packing-slip` (streams the PDF), `PUT /{id}` (correct parsed fields — Open orders only,
-409s otherwise), `POST /{id}/priority` (any status, no event), `PUT /{id}/notes` (any status —
-that's why it's separate from `PUT /{id}`, no event), `POST /ship`, `POST /cancel`, `POST /undo`
-(all take just `orderIds[]` — the actor is the signed-in user, from the JWT; undo reopens
+`GET /{id}/packing-slip` (streams the PDF), `PUT /{id}` (correct parsed fields; Open orders only,
+409s otherwise), `POST /{id}/priority` (any status, no event), `PUT /{id}/notes` (any status,
+which is why it's separate from `PUT /{id}`, no event), `POST /ship`, `POST /cancel`, `POST /undo`
+(all take just `orderIds[]`; the actor is the signed-in user, from the JWT; undo reopens
 Shipped/Cancelled → Open, appends `Reopened`, keeps priority/notes).
 
 **User admin** (`Controllers/UsersController.cs`, `api/users`, `[Authorize(Roles=Admin)]`):
 `GET /` (list), `POST /` (`{username,displayName}` → user + one-time `generatedPassword`),
 `POST /{id}/reset-password`, `POST /{id}/deactivate` + `/activate`, `PUT /{id}` (rename).
 
-**Order lookup** (`Controllers/LookupController.cs`, `api/lookup`) — the customer-service
+**Order lookup** (`Controllers/LookupController.cs`, `api/lookup`): the customer-service
 "where's this order?" screen, a rewrite of the standalone `CustomerServiceApp`
 (`C:\Users\jonat\Documents\ClaudeProjects\CustomerServiceApp`, now superseded). `[Authorize]` +
 **`[HideFromNonAdmins]`** (`Filters/`): a signed-in non-admin gets **404, not 403**, so the
-feature reads as non-existent — deliberately unlike `UsersController` / `orders/upload`, which
+feature reads as non-existent, deliberately unlike `UsersController` / `orders/upload`, which
 still 403 (adding another hidden endpoint = add the attribute; a new visible admin endpoint =
 call it out). Behind the `"lookup"` rate-limit policy (external calls). Endpoints:
 `GET /order?orderNumber=` (DB order by case-insensitive number + per-line-item badge against the
 inventory snapshots + parallel ShipStation enrichment when configured; `{ found:false }` when
 neither has it), `GET /inventory` (snapshot metadata), `POST /inventory` (multipart CSV +
-`kind` (`inStock`|`purchaseOrders`) + column mapping — replaces that kind's snapshot in one
+`kind` (`inStock`|`purchaseOrders`) + column mapping; replaces that kind's snapshot in one
 transaction). `Services/LookupService.cs` is the port of the old `OrderSearch.jsx` /
 `ShipStationOrderLookup.jsx` / `skuLookup.js` status logic.
 
-**ShipStation** (`Services/ShipStationClient.cs`, typed `HttpClient`) — the DB stores neither
+**ShipStation** (`Services/ShipStationClient.cs`, typed `HttpClient`): the DB stores neither
 tracking numbers nor ship-to addresses, so ShipStation stays the source for those (replaces the
 old Express proxy; the credential now lives in config, not checked-in JS). Config section
-`ShipStation:{ApiKey,ApiSecret,BaseUrl}` — **degrades gracefully when unset** (`IsConfigured`
+`ShipStation:{ApiKey,ApiSecret,BaseUrl}` **degrades gracefully when unset** (`IsConfigured`
 false → lookup returns DB-only with `shipStationConfigured:false`). This is a *deliberate*
 departure from the fail-fast `Jwt:Key` / `Cors` checks: ShipStation is optional enrichment, the
 DB lookup is the primary path and must not be blocked by a missing key.
 
-**Inventory snapshots** (`Entities/InventoryUpload` + `InventoryItem`) — one "current" reference
+**Inventory snapshots** (`Entities/InventoryUpload` + `InventoryItem`): one "current" reference
 list per `InventoryKind` (`InStock` / `PurchaseOrder`), replaced (not appended) on re-upload, so
 storage stays flat (~1–2 MB/kind). `InventoryUpload` is the header (filename / row count /
 uploader); `InventoryItem` rows are indexed `(Kind, Sku)` for the badge lookup.
@@ -147,14 +147,14 @@ uploader); `InventoryItem` rows are indexed `(Kind, Sku)` for the badge lookup.
 multipart CSV upload + `skuColumn`/`titleColumn`/`qtyColumn` form fields (UI maps them),
 cross-references against open-order line items, returns a JSON preview (UI builds the download
 CSV). `Services/ShippableItemsReport.cs` is the pure algorithm (port of the old
-`InventoryCheckWorker.js` — case-insensitive SKU-or-title match, `-<digit>` variant skip,
-blank on-hand → 0); `Services/InventoryCsv.cs` is the CsvHelper wrapper. Synchronous, in-memory
-— no worker thread / polling / temp files.
+`InventoryCheckWorker.js`: case-insensitive SKU-or-title match, `-<digit>` variant skip,
+blank on-hand → 0); `Services/InventoryCsv.cs` is the CsvHelper wrapper. Synchronous, in-memory,
+with no worker thread / polling / temp files.
 
 **CORS** is a named policy; origin from `Cors:AllowedOrigin` (env `Cors__AllowedOrigin`),
 falls back to the Vite dev origin `http://localhost:5173`.
 
-**Reverse proxy** — `Program.cs` runs `UseForwardedHeaders` first so `RemoteIpAddress` (used by
+**Reverse proxy**: `Program.cs` runs `UseForwardedHeaders` first so `RemoteIpAddress` (used by
 the login throttle + all auth logging) is the real client, not Caddy. It trusts
 `X-Forwarded-For` only from `ForwardedHeaders:KnownNetworks` (env
 `ForwardedHeaders__KnownNetworks`, comma/semicolon CIDRs), default `127.0.0.0/8, ::1/128,
@@ -171,8 +171,8 @@ Hold new code to these rules so the same gaps don't creep back:
 - **Everything is `[Authorize]` by default.** Only `HealthController` and `AuthController.Login`
   are `[AllowAnonymous]`. Adding another anonymous endpoint, or a role check looser than the
   route it lives on, must be called out in the PR with the reason. `[Authorize(Roles=Admin)]`
-  guards all of `UsersController` — keep user administration admin-only. `LookupController` uses
-  `[Authorize]` + `[HideFromNonAdmins]` (404 for non-admins instead of 403) — the feature is
+  guards all of `UsersController`; keep user administration admin-only. `LookupController` uses
+  `[Authorize]` + `[HideFromNonAdmins]` (404 for non-admins instead of 403); the feature is
   meant to be invisible, not merely forbidden.
 - **Never return exception detail to the client.** Log the exception, return the generic
   `{ message }` shape. No `ex.Message`, stack traces, SQL, or file paths in a response body or a
@@ -190,7 +190,7 @@ Hold new code to these rules so the same gaps don't creep back:
   every open order, or parses N files per call must bound the client-supplied magnitude and
   should sit behind the global rate limiter (once added). Only `AuthController` is throttled today.
 - **Secrets come from env / user-secrets only.** `appsettings*.json` keeps empty placeholders.
-  For security-critical config, fail fast at startup rather than booting degraded — see the
+  For security-critical config, fail fast at startup rather than booting degraded; see the
   `Jwt:Key` length check in `Program.cs`; copy that pattern for anything similar.
 - **Logging**: never log passwords, passphrases, tokens, full request bodies, or file bytes.
   `LogInformation` is for low-frequency events; auth events log the real client IP (post
@@ -200,14 +200,14 @@ Hold new code to these rules so the same gaps don't creep back:
 - **Keep dependencies patched.** Run `dotnet list package --vulnerable --include-transitive`
   before a deploy; `PdfPig` and `CsvHelper` parse untrusted input.
 
-## Deployment (mirror Henderson — not yet wired)
+## Deployment (mirror Henderson, not yet wired)
 
 `Dockerfile`, `Caddyfile`, `.github/workflows/deploy-api.yml` are in place, modeled on
 Henderson's. Target: EC2 + Docker behind Caddy (auto-HTTPS), RDS Postgres, image via ECR,
 deploy on `master` push through GitHub Actions OIDC + SSM Run Command (no SSH). Secrets in
 SSM Parameter Store `/digitalbox/prod/*` → `/etc/digitalbox-api.env` → `docker run --env-file`
 (`ConnectionStrings__Default`, `Jwt__Key` (>= 32 bytes or startup fails), `Cors__AllowedOrigin`,
-optionally `ForwardedHeaders__KnownNetworks`, and — for the order-lookup screen —
+optionally `ForwardedHeaders__KnownNetworks`, and, for the order-lookup screen,
 `ShipStation__ApiKey` / `ShipStation__ApiSecret` (optional; the lookup degrades to DB-only when
 absent). No `Auth__*` any more).
 The workflow needs repo `vars`: `AWS_REGION`, `ECR_REPOSITORY`, `EC2_INSTANCE_ID`,
@@ -215,37 +215,37 @@ The workflow needs repo `vars`: `AWS_REGION`, `ECR_REPOSITORY`, `EC2_INSTANCE_ID
 -r linux-x64` run from the instance (RDS isn't publicly reachable), with
 `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`. **After the first migration**, seed the admin once
 on the instance: `docker run --rm --env-file /etc/digitalbox-api.env <image> create-admin
-<user> "<name>"` — note the printed passphrase and hand it to the owner.
+<user> "<name>"`, then note the printed passphrase and hand it to the owner.
 
 ## Cost awareness (AWS)
 
 This runs on deliberately small infra: one shared RDS Postgres, a t3.micro-class EC2 box,
-ECR, and CloudWatch. None of it autoscales. Write code with these in mind — none of this
+ECR, and CloudWatch. None of it autoscales. Write code with these in mind; none of this
 means dropping features, just not spending money on things we don't need:
 
 **Expected scale (what "small infra" is sized for, re-verified 2026-08-29 against real data):**
 ~1000 orders/week ingested (one PDF each), **~5000 orders open in the queue** at steady state,
 ~1000 ship/cancel/upload actions/week. Uploads arrive in batches up to ~1000 (a week dropped at
-once) — never one 5000-file dump. Real slips measured ~77 KB avg / ~90 KB max; the `bytea` is
+once), never one 5000-file dump. Real slips measured ~77 KB avg / ~90 KB max; the `bytea` is
 TOAST-stored (`attstorage=x`) so list/queue queries never read a byte of it. This is a
-genuinely small workload — the queue query is an indexed scan of ≤5000 narrow rows, and
+genuinely small workload: the queue query is an indexed scan of ≤5000 narrow rows, and
 Postgres has years of runway on a `db.t4g.micro` at 10–20× this. **The one thing that grows
 without bound is RDS storage: ~4 GB/year, ~95% of it PDF `bytea`, high-water-mark billed
-forever.** That — not query load — is what the `S3PackingSlipStore` swap is for (do it around
+forever.** That, not query load, is what the `S3PackingSlipStore` swap is for (do it around
 year 2 / ~8–10 GB). Non-blob growth (orders + line items + events + the `SearchText` GIN index)
 is only ~100–150 MB/year and stays effectively flat after the S3 move. Incremental AWS cost
 holds at ~$5–15/mo co-located on Henderson's infra (mostly a possible t3.small RAM bump for two
-.NET runtimes in 1 GB — a co-tenancy constraint, not a DigitalBox-scale one).
+.NET runtimes in 1 GB, a co-tenancy constraint, not a DigitalBox-scale one).
 
 - **RDS storage never shrinks** (high-water-mark billing) and every byte is doubled by
   backups. Don't persist data a query doesn't need: no denormalized/derived columns beyond
-  the one we already carry (`Order.SearchText`), and no speculative indexes — a GIN
+  the one we already carry (`Order.SearchText`), and no speculative indexes: a GIN
   `pg_trgm` index alone runs 2–5× the size of its text. New index → name the query it
   serves in the PR.
 - **Packing-slip PDFs are the main storage driver.** Always go through `IPackingSlipStore`;
   the bytes move to S3 later (`S3PackingSlipStore`) and callers must not assume they're in
   the DB. Don't `Include(o => o.PackingSlip)` or select `.Content` unless you're actually
-  serving the file — pulling blobs through the DB buffer cache is also what pushes us off
+  serving the file; pulling blobs through the DB buffer cache is also what pushes us off
   the small instance.
 - **Container image ships to ECR + the EC2 disk on every deploy.** Keep the Alpine runtime
   base and the no-`.pdb` publish flags. Add a NuGet package only when it earns its place;
@@ -254,20 +254,20 @@ holds at ~$5–15/mo co-located on Henderson's infra (mostly a possible t3.small
   `Microsoft.AspNetCore` and `Microsoft.EntityFrameworkCore.Database.Command`. No
   per-request `LogInformation`, and never log request/response bodies or file bytes.
   `LogInformation` is for low-frequency events (a user created, a password reset).
-- **Keep batch/report work synchronous and in-memory** (the Shippable Items pattern) — no
+- **Keep batch/report work synchronous and in-memory** (the Shippable Items pattern): no
   queues, worker processes, temp files, or scheduled jobs unless a feature genuinely
   requires one.
 - **No new always-on processes or managed services.** SignalR presence is intentionally
   single-instance (in-memory `IPresenceTracker`); scaling it means a Redis backplane, which
-  is a real monthly line item — treat that as a deliberate decision, not a default.
+  is a real monthly line item; treat that as a deliberate decision, not a default.
 - **Watch append-only growth.** `OrderEvent` is fine at current volume; don't add
-  high-frequency event types (e.g. one row per view or per priority toggle — the latter is
+  high-frequency event types (e.g. one row per view or per priority toggle; the latter is
   already deliberately event-free).
 
 ## Code style
 
 - **Comments are plain `//`, not XML `/// <summary>` doc comments.** The project has no
-  `<GenerateDocumentationFile>`, so `///` blocks generate nothing and only clutter — the
+  `<GenerateDocumentationFile>`, so `///` blocks generate nothing and only clutter; the
   owner finds the XML scaffolding hard to read. Write a short `//` line (or `//` block);
   keep the *why*, drop anything that just restates the member name. EF migration
   `/// <inheritdoc />` is scaffolded and left as-is.
@@ -279,7 +279,7 @@ holds at ~$5–15/mo co-located on Henderson's infra (mostly a possible t3.small
   images and package versions.
 - Pin any added `Microsoft.*` / EF Core package to the `9.0.x` line explicitly; a bare
   `dotnet add package` grabs a newer-TFM release that won't restore (Henderson hit this).
-- `dump-pdf` is the fastest way to iterate on the parser — no DB or HTTP needed.
+- `dump-pdf` is the fastest way to iterate on the parser; no DB or HTTP needed.
 - Dev port is **5180**. Henderson's API dev profile uses 5194 and is often left running on
   this machine, so DigitalBox deliberately avoids it. The UI's `.env.local` and the CORS
   fallback must agree with whatever port is set here.

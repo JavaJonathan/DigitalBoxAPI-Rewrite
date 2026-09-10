@@ -26,7 +26,7 @@ public class ReportsController : ControllerBase
     }
 
     // Cross-references an uploaded inventory CSV against open-order demand. Returns a JSON
-    // preview; the UI builds the download CSV from it. Synchronous — no worker/polling.
+    // preview; the UI builds the download CSV from it. Synchronous, no worker/polling.
     [HttpPost("shippable-items")]
     [RequestSizeLimit(MaxCsvBytes + 1024 * 1024)]
     public async Task<ActionResult<ShippableItemsResponseModel>> ShippableItems(

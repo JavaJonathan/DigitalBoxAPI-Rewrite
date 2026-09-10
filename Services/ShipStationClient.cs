@@ -13,7 +13,7 @@ public class ShipStationOptions
 }
 
 // One ShipStation order, flattened to what the lookup screen needs. Successor to the old
-// Express proxy in CustomerServiceApp/server.js — the credential now lives in server config
+// Express proxy in CustomerServiceApp/server.js; the credential now lives in server config
 // instead of a checked-in JS file.
 public sealed record ShipStationOrder(
     string OrderNumber,
@@ -104,7 +104,7 @@ public class ShipStationClient
         }
         catch (Exception ex)
         {
-            // Timeout, 5xx, bad JSON, auth failure — log it, hand the caller a generic string.
+            // Timeout, 5xx, bad JSON, auth failure: log it, hand the caller a generic string.
             _logger.LogWarning(ex, "ShipStation lookup for order {OrderNumber} failed.", orderNumber);
             return new ShipStationLookup(null, "ShipStation is unavailable right now.");
         }

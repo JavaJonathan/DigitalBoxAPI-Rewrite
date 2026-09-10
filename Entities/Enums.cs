@@ -22,7 +22,7 @@ public enum ParseStatus
     // Fields extracted cleanly.
     Parsed = 0,
 
-    // Parsed with gaps or low confidence — a human should check it.
+    // Parsed with gaps or low confidence; a human should check it.
     NeedsReview,
 
     // The PDF could not be parsed at all; the order is a stub.
@@ -56,6 +56,6 @@ public enum InventoryKind
     // SKUs physically on hand.
     InStock = 0,
 
-    // SKUs on an open purchase order — incoming, not yet in stock.
+    // SKUs on an open purchase order: incoming, not yet in stock.
     PurchaseOrder
 }

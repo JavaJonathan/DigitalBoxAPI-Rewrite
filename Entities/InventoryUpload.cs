@@ -1,8 +1,8 @@
 namespace DigitalBoxApi.Entities;
 
-// Header row for one uploaded reference list. Exactly one per InventoryKind — re-uploading
-// replaces the InventoryItem rows and updates this record in place. Backs the "In stock —
-// 1,240 SKUs, updated 2h ago" line on the lookup screen.
+// Header row for one uploaded reference list. Exactly one per InventoryKind; re-uploading
+// replaces the InventoryItem rows and updates this record in place. Backs the
+// "In stock: 1,240 SKUs, updated 2h ago" line on the lookup screen.
 public class InventoryUpload
 {
     public Guid Id { get; set; }

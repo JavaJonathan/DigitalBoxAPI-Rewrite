@@ -12,7 +12,7 @@ public class PackingSlip
 
     public int ByteSize { get; set; }
 
-    // SHA-256 (hex) of the file bytes — unique, used to reject duplicate uploads.
+    // SHA-256 (hex) of the file bytes; unique, used to reject duplicate uploads.
     public string Sha256 { get; set; } = string.Empty;
 
     public byte[] Content { get; set; } = Array.Empty<byte>();

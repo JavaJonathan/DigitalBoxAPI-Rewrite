@@ -13,7 +13,7 @@ namespace DigitalBoxApi.Controllers;
 
 // Admin order-lookup for the customer-service team: "where's this order?" answered against the
 // live DigitalBox DB, the uploaded In-Stock / Purchase-Order reference lists, and ShipStation.
-// Replaces the standalone CustomerServiceApp. Admin-only AND hidden — a non-admin gets 404
+// Replaces the standalone CustomerServiceApp. Admin-only AND hidden: a non-admin gets 404
 // (see HideFromNonAdmins), so the feature reads as non-existent rather than forbidden.
 [ApiController]
 [Route("api/lookup")]

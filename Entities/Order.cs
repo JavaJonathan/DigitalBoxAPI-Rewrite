@@ -22,15 +22,15 @@ public class Order
     public string? Notes { get; set; }
 
     // Lower-cased, alphanumerics-only concatenation of every line-item title, the order
-    // number(s), and the note. Backs trigram search — mirrors the old
+    // number(s), and the note. Backs trigram search; mirrors the old
     // HttpHelper.filterForSearchValue behaviour.
     public string SearchText { get; set; } = string.Empty;
 
-    // Display-name snapshot of who shipped or cancelled the order — point-in-time, kept even if
+    // Display-name snapshot of who shipped or cancelled the order: point-in-time, kept even if
     // the user is later renamed or removed.
     public string? ActionedBy { get; set; }
 
-    // Stable reference to that user. Soft (no FK) — null for pre-accounts history.
+    // Stable reference to that user. Soft (no FK); null for pre-accounts history.
     public Guid? ActionedByUserId { get; set; }
 
     public Guid PackingSlipId { get; set; }

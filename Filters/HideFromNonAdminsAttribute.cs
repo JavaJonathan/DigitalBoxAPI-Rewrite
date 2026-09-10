@@ -6,7 +6,7 @@ namespace DigitalBoxApi.Filters;
 
 // Admin-only, but invisible to everyone else. [Authorize] on the controller already 401s
 // anonymous requests (the SPA turns that into a login redirect), so this filter only runs for
-// authenticated users: anyone who isn't an admin gets 404, not 403 — the feature's existence
+// authenticated users: anyone who isn't an admin gets 404, not 403, so the feature's existence
 // is not disclosed to curious warehouse staff. A signed-in user probing /api/lookup/* sees
 // exactly what they'd get for a misspelled route.
 //
@@ -19,7 +19,7 @@ public sealed class HideFromNonAdminsAttribute : Attribute, IAsyncAuthorizationF
     {
         if (!context.HttpContext.User.IsInRole(nameof(UserRole.Admin)))
         {
-            // Write a bare 404 directly rather than via NotFoundResult / StatusCodeResult —
+            // Write a bare 404 directly rather than via NotFoundResult / StatusCodeResult:
             // [ApiController]'s client-error filter would wrap those in a ProblemDetails body,
             // which an unmatched route doesn't return. This keeps the two responses identical.
             context.HttpContext.Response.StatusCode = StatusCodes.Status404NotFound;

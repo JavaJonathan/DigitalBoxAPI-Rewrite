@@ -11,7 +11,7 @@ namespace DigitalBoxApi.Services;
 // + utils/skuLookup.js.
 public class LookupService
 {
-    // ShipStation order statuses that mean "not yet shipped" — the only ones where a per-item
+    // ShipStation order statuses that mean "not yet shipped": the only ones where a per-item
     // in-stock / pre-order badge is meaningful (old AWAITING_STATUSES).
     private static readonly HashSet<string> AwaitingStatuses = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -38,7 +38,7 @@ public class LookupService
             .OrderByDescending(o => o.CreatedAt)
             .ToListAsync(ct);
 
-        // Fire the ShipStation call alongside the DB read — we want tracking / ship-to even when
+        // Fire the ShipStation call alongside the DB read; we want tracking / ship-to even when
         // the order is already in the DB (the DB stores neither).
         var shipStationLookup = await _shipStation.LookupAsync(trimmed, ct);
 

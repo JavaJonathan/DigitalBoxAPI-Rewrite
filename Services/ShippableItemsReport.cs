@@ -52,22 +52,22 @@ public sealed record ShippableItemsResult(
     int UnitsShippable);
 
 // Cross-references an inventory list against open-order demand. Successor to the old
-// InventoryCheckWorker.js. Pure — no DB / IO / DI.
+// InventoryCheckWorker.js. Pure: no DB / IO / DI.
 //
 // Two products:
-//   * item-level rows  — per matched SKU: ordered vs on-hand, what's shippable, what's short.
-//   * order-level rows  — walking open orders in queue order (priority, then oldest),
+//   * item-level rows: per matched SKU, ordered vs on-hand, what's shippable, what's short.
+//   * order-level rows: walking open orders in queue order (priority, then oldest),
 //     decrementing a working copy of stock, so each order reads as Shippable / Partial /
 //     Blocked / NeedsCheck given real contention for scarce SKUs.
 //
 // Matching rules (fix the old worker's double-count + fragile substring bugs):
-//   * a line with its own SKU matches ONLY an exact (case-insensitive) inventory SKU — a
+//   * a line with its own SKU matches ONLY an exact (case-insensitive) inventory SKU, and a
 //     mismatch there is a real gap, not a formatting quirk, so it is reported, not papered
 //     over with a title guess;
 //   * a line with no SKU falls back to "an inventory SKU (len >= 4) appears in the title",
 //     longest SKU wins;
 //   * every line is attributed to AT MOST ONE inventory SKU, so demand is never summed twice;
-//   * inventory SKUs ending "-<digit>" (variant children) are excluded from matching —
+//   * inventory SKUs ending "-<digit>" (variant children) are excluded from matching, so
 //     any order demand for them surfaces under UnmatchedDemand instead of vanishing.
 public static partial class ShippableItemsReport
 {
@@ -216,7 +216,7 @@ public static partial class ShippableItemsReport
             .ThenBy(i => i.Sku, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // 5. Order-level allocation — pick in the same order the Open queue presents.
+        // 5. Order-level allocation: pick in the same order the Open queue presents.
         var working = stock.ToDictionary(kv => kv.Key, kv => kv.Value.OnHand, StringComparer.Ordinal);
         var linesByOrder = matchedLines
             .GroupBy(m => m.Line.OrderId)

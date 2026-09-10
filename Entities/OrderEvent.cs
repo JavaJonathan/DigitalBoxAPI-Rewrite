@@ -13,7 +13,7 @@ public class OrderEvent
     // Operator display-name snapshot for Shipped/Cancelled events; null for system events.
     public string? Actor { get; set; }
 
-    // Stable reference to that user. Soft (no FK) — null for system / pre-accounts events.
+    // Stable reference to that user. Soft (no FK); null for system / pre-accounts events.
     public Guid? ActorUserId { get; set; }
 
     // Optional human-readable detail (e.g. what an Edited event changed).

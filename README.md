@@ -16,8 +16,8 @@ dotnet user-secrets set "Jwt:Key" "$(openssl rand -base64 48)"
 
 # 3. Schema + first account + run
 dotnet ef database update
-dotnet run -- create-admin owner "Owner Name"   # prints a generated passphrase — save it
-dotnet run                                      # http://localhost:5180  — Swagger UI at /swagger
+dotnet run -- create-admin owner "Owner Name"   # prints a generated passphrase; save it
+dotnet run                                      # http://localhost:5180 (Swagger UI at /swagger)
 ```
 
 Sign in with the admin account from step 3. That admin adds everyone else (and resets

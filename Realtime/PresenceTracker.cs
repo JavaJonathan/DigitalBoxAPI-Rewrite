@@ -4,7 +4,7 @@ namespace DigitalBoxApi.Realtime;
 // they only count as offline once the last one drops. Registered as a singleton.
 //
 // Process-local. If the API is ever scaled past a single instance this needs a SignalR
-// backplane (Redis) and a shared presence store — not a concern at the current crew size.
+// backplane (Redis) and a shared presence store, not a concern at the current crew size.
 public interface IPresenceTracker
 {
     // Register a connection. Returns true if this made the user newly online.

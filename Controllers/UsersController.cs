@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DigitalBoxApi.Controllers;
 
-// Account administration. Admin-only. Passwords are always system-generated and shown once —
+// Account administration. Admin-only. Passwords are always system-generated and shown once;
 // there is no set-a-password field and no self-service. New accounts are always role
 // UserRole.User; admins are seeded with the create-admin CLI command.
 [ApiController]

@@ -4,7 +4,7 @@ using CsvHelper.Configuration;
 
 namespace DigitalBoxApi.Services;
 
-// Reads a customer inventory CSV. Deliberately lenient — the whole reason this feature exists
+// Reads a customer inventory CSV. Deliberately lenient: the whole reason this feature exists
 // is that the export is messy (ragged rows, quoted fields, a BOM, a street address as a header).
 // Column mapping is chosen by the operator in the UI and passed in.
 public static class InventoryCsv
@@ -30,7 +30,7 @@ public static class InventoryCsv
     }
 
     // SKU-only overload for purchase-order lists, which frequently carry nothing but a SKU
-    // column. Title comes back empty and OnHand 0 — a PO list only signals "this SKU is on order".
+    // column. Title comes back empty and OnHand 0; a PO list only signals "this SKU is on order".
     public static List<InventoryRow> ReadRows(Stream csv, string skuHeader, int maxRows) =>
         ReadRows(csv, skuHeader, titleHeader: null, qtyHeader: null, maxRows);
 

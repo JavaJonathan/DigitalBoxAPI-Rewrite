@@ -13,7 +13,7 @@ namespace DigitalBoxApi.Controllers;
 [Route("api/auth")]
 public class AuthController : ControllerBase
 {
-    // Fixed delay on a failed login — invisible to a person, throttles scripted guessing.
+    // Fixed delay on a failed login: invisible to a person, throttles scripted guessing.
     private static readonly TimeSpan FailureDelay = TimeSpan.FromMilliseconds(400);
 
     private readonly ApplicationDbContext _db;

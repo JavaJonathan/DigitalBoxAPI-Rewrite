@@ -4,7 +4,7 @@ namespace DigitalBoxApi.Services;
 
 // Guesses the marketplace from an order number's shape. Ported from the old
 // HttpHelper.filterForMarketplace heuristics (DigitalBoxApi/HttpHelper.js:153-170).
-// Not authoritative — an operator can override it on the order.
+// Not authoritative; an operator can override it on the order.
 public static class MarketplaceDetector
 {
     public static Marketplace Detect(string? orderNumber)
@@ -31,7 +31,7 @@ public static class MarketplaceDetector
             };
         }
 
-        // No dash and not a Shopify "1001..." number — the old code treated this as Walmart.
+        // No dash and not a Shopify "1001..." number; the old code treated this as Walmart.
         return Marketplace.Walmart;
     }
 }
