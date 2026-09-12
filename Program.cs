@@ -251,7 +251,7 @@ if (string.IsNullOrWhiteSpace(configuredOrigin) && !builder.Environment.IsDevelo
         "it is the deployed SPA origin the API allows.");
 }
 var allowedOrigin = string.IsNullOrWhiteSpace(configuredOrigin)
-    ? "http://localhost:5173"
+    ? "http://localhost:5183"
     : configuredOrigin;
 builder.Services.AddCors(options =>
 {

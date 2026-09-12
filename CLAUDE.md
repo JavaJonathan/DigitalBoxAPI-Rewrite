@@ -170,7 +170,7 @@ blank on-hand → 0); `Services/InventoryCsv.cs` is the CsvHelper wrapper. Synch
 with no worker thread / polling / temp files.
 
 **CORS** is a named policy; origin from `Cors:AllowedOrigin` (env `Cors__AllowedOrigin`),
-falls back to the Vite dev origin `http://localhost:5173`.
+falls back to the Vite dev origin `http://localhost:5183`.
 
 **Reverse proxy**: `Program.cs` runs `UseForwardedHeaders` first so `RemoteIpAddress` (used by
 the login throttle + all auth logging) is the real client, not Caddy. It trusts
