@@ -214,14 +214,18 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
             var value = candidate.Value.Trim().Trim('-');
 
             // Order numbers frequently wrap: "112-5558857-" continues as "4076213" somewhere
-            // on the next visual row (often after unrelated address text). If the captured
-            // value ended on a dash, pull the first standalone numeric run (>= 4 digits) off
-            // the next row as the tail.
+            // on the next visual row. That row is often a merged two-column line (e.g. the
+            // "Ship To" address sits at the same Y as "Order #", so BuildRows folds them
+            // together), so the real tail can be preceded by unrelated numeric text like a
+            // street number. Anchor on X position instead of reading order: the tail sits in
+            // the same visual column as the dash-ending token above it.
             if (candidate.Value.TrimEnd().EndsWith('-') && i + 1 < rows.Count)
             {
-                var tail = rows[i + 1].Tokens
-                    .Select(t => t.Text)
-                    .FirstOrDefault(t => t.Length >= 4 && t.All(char.IsDigit));
+                var anchor = rows[i].Tokens.LastOrDefault(t => t.Text.TrimEnd().EndsWith('-'));
+                var tailTokens = rows[i + 1].Tokens.Where(t => t.Text.Length >= 4 && t.Text.All(char.IsDigit));
+                var tail = anchor is null
+                    ? tailTokens.Select(t => t.Text).FirstOrDefault()
+                    : tailTokens.OrderBy(t => Math.Abs(t.Left - anchor.Left)).Select(t => t.Text).FirstOrDefault();
                 if (tail is not null)
                 {
                     value = $"{value}-{tail}";
