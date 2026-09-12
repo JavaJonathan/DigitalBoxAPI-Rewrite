@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
+using UglyToad.PdfPig.Writer;
 
 namespace DigitalBoxApi.Services;
 
@@ -14,6 +15,12 @@ public record ParsedSlip(
     IReadOnlyList<ParsedLineItem> LineItems,
     ParseConfidence Confidence,
     string? Note);
+
+// One detected order within an uploaded PDF, plus the standalone single-order PDF split out
+// for it (page range 1-indexed, inclusive). A file with one order in it still produces exactly
+// one segment; splitting only actually happens (via PdfDocumentBuilder) when a file contains
+// more than one.
+public record ParsedOrderSegment(ParsedSlip Slip, byte[] PdfBytes, int FirstPage, int LastPage);
 
 public enum ParseConfidence
 {
@@ -29,7 +36,8 @@ public enum ParseConfidence
 
 public interface IPackingSlipParser
 {
-    ParsedSlip Parse(byte[] pdfBytes);
+    // Always returns at least one segment, even when nothing usable could be parsed.
+    IReadOnlyList<ParsedOrderSegment> Parse(byte[] pdfBytes);
 }
 
 // Layout-aware packing-slip extraction over PdfPig. Replaces the old token/URL-encoding state
@@ -40,16 +48,25 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
 {
     private readonly ILogger<PdfPigPackingSlipParser> _logger;
 
+    // A combined export that appears to contain more "orders" than this is treated as
+    // unparseable rather than fanning out into hundreds of Order-creation transactions from one
+    // upload (CLAUDE.md: bound client-supplied magnitude on fan-out endpoints). Real combined
+    // slips run ~66 KB/order; at the 15 MB per-file upload cap that is a ~227-order ceiling for a
+    // legitimate dense batch, so this leaves headroom above that while still bounding a
+    // pathological file (many small pages) the byte cap alone would not catch.
+    private const int MaxDetectedOrders = 300;
+
     public PdfPigPackingSlipParser(ILogger<PdfPigPackingSlipParser> logger)
     {
         _logger = logger;
     }
 
-    public ParsedSlip Parse(byte[] pdfBytes)
+    public IReadOnlyList<ParsedOrderSegment> Parse(byte[] pdfBytes)
     {
         try
         {
             using var doc = PdfDocument.Open(pdfBytes);
+            var totalPages = doc.NumberOfPages;
             var rows = new List<TextRow>();
             foreach (var page in doc.GetPages())
             {
@@ -58,21 +75,27 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
 
             if (rows.Count == 0)
             {
-                return new ParsedSlip(string.Empty, null, Array.Empty<ParsedLineItem>(),
-                    ParseConfidence.None, "No selectable text in PDF (scanned image?).");
+                return SingleFailedSegment(pdfBytes, totalPages,
+                    "No selectable text in PDF (scanned image?).");
             }
 
-            var orderNumber = FindOrderNumber(rows);
-            var shipDate = FindShipDate(rows);
-            var lineItems = FindLineItems(rows);
+            var occurrencePages = FindOrderNumberPages(rows);
+            var ranges = BuildSegmentRanges(occurrencePages, totalPages);
 
-            var confidence = ScoreConfidence(orderNumber, lineItems);
-            string? note = confidence == ParseConfidence.Good
-                ? null
-                : $"Auto-parse needs a check. Order #: {(orderNumber.Length > 0 ? orderNumber : "missing")}, " +
-                  $"{lineItems.Count} line item(s).";
+            if (ranges.Count > MaxDetectedOrders)
+            {
+                return SingleFailedSegment(pdfBytes, totalPages,
+                    $"Detected {ranges.Count} possible orders in one file, over the " +
+                    $"{MaxDetectedOrders}-order limit; not processed. Split it into smaller files.");
+            }
 
-            return new ParsedSlip(orderNumber, shipDate, lineItems, confidence, note);
+            var segments = new List<ParsedOrderSegment>(ranges.Count);
+            foreach (var (start, end) in ranges)
+            {
+                segments.Add(ParseSegment(doc, rows, pdfBytes, start, end, ranges.Count));
+            }
+
+            return segments;
         }
         catch (Exception ex)
         {
@@ -80,9 +103,116 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
             // it must never carry ex.Message / stack detail (CLAUDE.md). Log the real exception;
             // hand back a generic note.
             _logger.LogWarning(ex, "Packing-slip parse threw.");
-            return new ParsedSlip(string.Empty, null, Array.Empty<ParsedLineItem>(),
-                ParseConfidence.None, "Auto-parse failed. Enter this order's details manually.");
+            return SingleFailedSegment(pdfBytes, 1, "Auto-parse failed. Enter this order's details manually.");
         }
+    }
+
+    // Extracts one segment's fields from its own row subset, reusing the same single-order
+    // logic as before this file supported multiple orders. Isolated in its own try/catch so one
+    // bad segment in a large combined batch does not sink the rest of it.
+    private ParsedOrderSegment ParseSegment(
+        PdfDocument doc, List<TextRow> rows, byte[] originalBytes, int start, int end, int totalSegments)
+    {
+        try
+        {
+            var segmentRows = rows.Where(r => r.PageNumber >= start && r.PageNumber <= end).ToList();
+            var orderNumber = FindOrderNumber(segmentRows);
+            var shipDate = FindShipDate(segmentRows);
+            var lineItems = FindLineItems(segmentRows);
+
+            var confidence = ScoreConfidence(orderNumber, lineItems);
+            string? note = confidence == ParseConfidence.Good
+                ? null
+                : $"Auto-parse needs a check. Order #: {(orderNumber.Length > 0 ? orderNumber : "missing")}, " +
+                  $"{lineItems.Count} line item(s).";
+
+            // The common case (a file with just one order) reuses the original bytes untouched;
+            // only a genuinely multi-order file pays for the PdfDocumentBuilder round-trip.
+            var pdfBytes = totalSegments == 1 ? originalBytes : BuildSegmentPdf(doc, start, end);
+
+            return new ParsedOrderSegment(
+                new ParsedSlip(orderNumber, shipDate, lineItems, confidence, note), pdfBytes, start, end);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to process a detected order at pages {Start}-{End}.", start, end);
+            return new ParsedOrderSegment(
+                new ParsedSlip(string.Empty, null, Array.Empty<ParsedLineItem>(), ParseConfidence.None,
+                    "Auto-parse failed for this order. Enter its details manually."),
+                originalBytes, start, end);
+        }
+    }
+
+    private static byte[] BuildSegmentPdf(PdfDocument doc, int start, int end)
+    {
+        using var builder = new PdfDocumentBuilder();
+        for (var p = start; p <= end; p++)
+        {
+            builder.AddPage(doc, p);
+        }
+
+        return builder.Build();
+    }
+
+    private static IReadOnlyList<ParsedOrderSegment> SingleFailedSegment(byte[] pdfBytes, int totalPages, string note) =>
+        new[]
+        {
+            new ParsedOrderSegment(
+                new ParsedSlip(string.Empty, null, Array.Empty<ParsedLineItem>(), ParseConfidence.None, note),
+                pdfBytes, 1, Math.Max(totalPages, 1))
+        };
+
+    // Finds every page on which an "Order #" label resolves to a real (non-date) candidate
+    // value, in document order, de-duplicating repeats on the same page. Zero or one page found
+    // both collapse (via BuildSegmentRanges) to the whole document being a single segment, so a
+    // single-order PDF behaves exactly as it did before this file supported multiple orders.
+    private static List<int> FindOrderNumberPages(List<TextRow> rows)
+    {
+        var pages = new List<int>();
+        foreach (var row in rows)
+        {
+            var label = OrderLabelRegex().Match(row.Text);
+            if (!label.Success)
+            {
+                continue;
+            }
+
+            var after = row.Text[(label.Index + label.Length)..];
+            var candidate = OrderNumberCandidateRegex().Match(after);
+            if (!candidate.Success || LooksLikeDate(candidate.Value))
+            {
+                continue;
+            }
+
+            if (pages.Count == 0 || pages[^1] != row.PageNumber)
+            {
+                pages.Add(row.PageNumber);
+            }
+        }
+
+        return pages;
+    }
+
+    // Turns the pages an "Order #" was found on into page ranges, one per detected order. Real
+    // combined exports place each order's own label/content on the page(s) leading up to and
+    // including its "Order #" page (e.g. a preceding shipping-label page), so a page belongs to
+    // the next order-number page it precedes, not the previous one.
+    private static List<(int Start, int End)> BuildSegmentRanges(List<int> occurrencePages, int totalPages)
+    {
+        if (occurrencePages.Count == 0)
+        {
+            return new List<(int, int)> { (1, Math.Max(totalPages, 1)) };
+        }
+
+        var ranges = new List<(int Start, int End)>(occurrencePages.Count);
+        for (var i = 0; i < occurrencePages.Count; i++)
+        {
+            var start = i == 0 ? 1 : occurrencePages[i - 1] + 1;
+            var end = i == occurrencePages.Count - 1 ? totalPages : occurrencePages[i];
+            ranges.Add((start, end));
+        }
+
+        return ranges;
     }
 
     private static ParseConfidence ScoreConfidence(string orderNumber, IReadOnlyList<ParsedLineItem> lineItems)
@@ -107,6 +237,7 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
     private sealed class TextRow
     {
         public double Y { get; init; }
+        public int PageNumber { get; init; }
         public List<Token> Tokens { get; } = new();
         public string Text => string.Join(' ', Tokens.Select(t => t.Text));
     }
@@ -170,7 +301,7 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
             var row = rows.FirstOrDefault(r => Math.Abs(r.Y - token.Y) <= yTolerance);
             if (row is null)
             {
-                row = new TextRow { Y = token.Y };
+                row = new TextRow { Y = token.Y, PageNumber = page.Number };
                 rows.Add(row);
             }
 

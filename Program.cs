@@ -350,15 +350,22 @@ if (args.Length > 0 && args[0] == "dump-pdf")
 
     using var scope = app.Services.CreateScope();
     var parser = scope.ServiceProvider.GetRequiredService<IPackingSlipParser>();
-    var parsed = parser.Parse(await File.ReadAllBytesAsync(args[1]));
-    Console.WriteLine($"Confidence : {parsed.Confidence}");
-    Console.WriteLine($"OrderNumber: '{parsed.OrderNumber}'");
-    Console.WriteLine($"ShipDate   : {parsed.ShipDate}");
-    Console.WriteLine($"Note       : {parsed.Note}");
-    Console.WriteLine($"LineItems  : {parsed.LineItems.Count}");
-    foreach (var li in parsed.LineItems)
+    var segments = parser.Parse(await File.ReadAllBytesAsync(args[1]));
+    Console.WriteLine($"Detected {segments.Count} order(s) in this file.");
+    for (var i = 0; i < segments.Count; i++)
     {
-        Console.WriteLine($"  - qty {li.Quantity,-4} sku {li.Sku ?? "-",-16} {li.Title}");
+        var seg = segments[i];
+        Console.WriteLine();
+        Console.WriteLine($"=== Order {i + 1}/{segments.Count} (pages {seg.FirstPage}-{seg.LastPage}, {seg.PdfBytes.Length:N0} bytes) ===");
+        Console.WriteLine($"Confidence : {seg.Slip.Confidence}");
+        Console.WriteLine($"OrderNumber: '{seg.Slip.OrderNumber}'");
+        Console.WriteLine($"ShipDate   : {seg.Slip.ShipDate}");
+        Console.WriteLine($"Note       : {seg.Slip.Note}");
+        Console.WriteLine($"LineItems  : {seg.Slip.LineItems.Count}");
+        foreach (var li in seg.Slip.LineItems)
+        {
+            Console.WriteLine($"  - qty {li.Quantity,-4} sku {li.Sku ?? "-",-16} {li.Title}");
+        }
     }
 
     return;

@@ -87,17 +87,35 @@ user; `ActionedBy` / `Actor` keep the display-name snapshot for old rows and ren
   UPDATE→"affected 0"; the child-PK bug hit twice this project).
 - `User`: login accounts; see **Auth** above. `Users` table, unique lower-cased `Username`.
 
-**Ingestion** (`Services/OrderIngestionService.cs`): per uploaded PDF, SHA-256 → dedupe
-check → `IPackingSlipParser.Parse` → create Order + line items + slip + `Created` event in
-one `SaveChanges`. Each file is its own unit so one bad file doesn't fail the batch.
-`Confidence.Partial` → `ParseStatus.NeedsReview`; an exception → `Failed` (order still
-created as a stub for manual entry).
+**Ingestion** (`Services/OrderIngestionService.cs`): an uploaded PDF may contain more than one
+order (a combined carrier/marketplace batch export) — `IngestAsync` calls
+`IPackingSlipParser.Parse`, which always returns one or more `ParsedOrderSegment`s, then creates
+an Order + line items + slip + `Created` event per segment, each in its own `SaveChanges`. Each
+detected order is its own unit so one bad order doesn't fail the rest of the same file (extending
+the existing "each file is its own unit" batch-upload guarantee one level deeper). Duplicate
+detection keys on each segment's own parsed content (order number + ship date + line items,
+`ComputeDedupeHash`), not on the PDF bytes: splitting a combined file into per-order PDFs
+(`PdfDocumentBuilder`) is not byte-deterministic between separate uploads, so a byte hash can't
+catch a re-uploaded combined batch. A segment with no usable order number (parse failed) falls
+back to hashing its own bytes so distinct unparseable uploads don't collide. `Confidence.Partial`
+→ `ParseStatus.NeedsReview`; an exception → `Failed` (order still created as a stub for manual
+entry).
 
 **PDF parsing** (`Services/PackingSlipParser.cs`): PdfPig words → grouped into visual rows by
-Y coordinate → regex anchors for "Order #" / "Ship Date" → locate the line-item table header
-(`Description` + `Qty`) → read rows beneath it until a totals/footer marker. This replaces the
-old `ContentHelper.js` token/URL-encoding state machine. It is heuristic; expect to tune
-`FindLineItems` / the regexes against real slips per marketplace; use `dump-pdf`.
+Y coordinate (each row also carries the page it came from) → every "Order #" occurrence in the
+document is found, and the document is split into one page-range segment per occurrence (a page
+belongs to the next order-number page it precedes, so a preceding shipping-label page joins its
+own order rather than the previous one; zero or one occurrence both collapse to a single segment
+covering the whole document, so an ordinary single-order PDF is unaffected). Each segment is then
+parsed independently with the same per-order logic: regex anchors for "Order #" / "Ship Date" →
+locate the line-item table header (`Description` + `Qty`) → read rows beneath it until a
+totals/footer marker. A file that resolves to more than `MaxDetectedOrders` (300) segments is
+treated as unparseable rather than fanning out that many Order-creation transactions from one
+upload. A segment other than the sole one is materialized as its own standalone PDF via
+`PdfDocumentBuilder.AddPage`/`Build` (`UglyToad.PdfPig.Writer`); the common single-order case
+reuses the original bytes untouched. This replaces the old `ContentHelper.js` token/URL-encoding
+state machine. It is heuristic; expect to tune `FindLineItems` / the regexes against real slips
+per marketplace; use `dump-pdf`, which reports every detected order's page range and fields.
 
 **Marketplace detection** (`Services/MarketplaceDetector.cs`): order-number shape heuristics
 ported from the old `HttpHelper.filterForMarketplace`. Stored on the order at creation; an

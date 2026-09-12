@@ -117,10 +117,10 @@ public class OrdersController : ControllerBase
                 continue;
             }
 
-            UploadFileResultModel result;
+            List<UploadFileResultModel> results;
             try
             {
-                result = await _ingestion.IngestAsync(file.FileName, bytes, ct);
+                results = await _ingestion.IngestAsync(file.FileName, bytes, ct);
             }
             catch (OperationCanceledException)
             {
@@ -140,12 +140,17 @@ public class OrdersController : ControllerBase
                 continue;
             }
 
-            response.Files.Add(result);
-            switch (result.Outcome)
+            // One uploaded file can now produce more than one result: it may be a combined
+            // export containing several orders.
+            response.Files.AddRange(results);
+            foreach (var result in results)
             {
-                case "created": response.Created++; break;
-                case "duplicate": response.Duplicates++; break;
-                default: response.Errors++; break;
+                switch (result.Outcome)
+                {
+                    case "created": response.Created++; break;
+                    case "duplicate": response.Duplicates++; break;
+                    default: response.Errors++; break;
+                }
             }
         }
 
