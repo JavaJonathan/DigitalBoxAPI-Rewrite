@@ -9,7 +9,7 @@ public class ShippableItemsRowModel
     public int ShippableQty { get; set; }
     public int ShortQty { get; set; }
 
-    // "Covered" | "Partial" | "Blocked".
+    // "Covered" | "Partial". Fully out-of-stock ("Blocked") items aren't reported at all.
     public string Coverage { get; set; } = string.Empty;
 }
 
@@ -39,12 +39,13 @@ public class ShippableOrderRowModel
     public int LineCount { get; set; }
     public int CoveredLineCount { get; set; }
 
-    // "Shippable" | "Partial" | "Blocked" | "NeedsCheck".
+    // "Shippable" | "Partial" | "NeedsCheck". Fully out-of-stock ("Blocked") orders aren't
+    // reported at all.
     public string Status { get; set; } = string.Empty;
     public List<ShippableOrderShortLineModel> ShortLines { get; set; } = new();
 }
 
-public class ShippableItemsResponseModel
+public class ShippableOrdersResponseModel
 {
     public List<ShippableItemsRowModel> Rows { get; set; } = new();
     public List<UnmatchedDemandRowModel> UnmatchedDemand { get; set; } = new();
@@ -57,7 +58,19 @@ public class ShippableItemsResponseModel
 
     public int OrdersShippable { get; set; }
     public int OrdersPartial { get; set; }
-    public int OrdersBlocked { get; set; }
     public int OrdersNeedsCheck { get; set; }
+    public int UnitsShippable { get; set; }
+}
+
+// The original, item-centric report: no order-level fields at all.
+public class ShippableItemsResponseModel
+{
+    public List<ShippableItemsRowModel> Rows { get; set; } = new();
+    public List<UnmatchedDemandRowModel> UnmatchedDemand { get; set; } = new();
+
+    public DateTime GeneratedAt { get; set; }
+    public int OpenOrderCount { get; set; }
+    public int CsvRowCount { get; set; }
+    public int MatchedRowCount { get; set; }
     public int UnitsShippable { get; set; }
 }

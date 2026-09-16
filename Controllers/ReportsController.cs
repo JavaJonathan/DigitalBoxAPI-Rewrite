@@ -25,8 +25,63 @@ public class ReportsController : ControllerBase
         _logger = logger;
     }
 
-    // Cross-references an uploaded inventory CSV against open-order demand. Returns a JSON
-    // preview; the UI builds the download CSV from it. Synchronous, no worker/polling.
+    // Cross-references an uploaded inventory CSV against open-order demand and allocates it
+    // per order. Returns a JSON preview; the UI builds the download CSV from it. Synchronous,
+    // no worker/polling.
+    [HttpPost("shippable-orders")]
+    [RequestSizeLimit(MaxCsvBytes + 1024 * 1024)]
+    public async Task<ActionResult<ShippableOrdersResponseModel>> ShippableOrders(
+        [FromForm] IFormFile? file,
+        [FromForm] string? skuColumn,
+        [FromForm] string? titleColumn,
+        [FromForm] string? qtyColumn,
+        CancellationToken ct)
+    {
+        var (rows, rowsError) = await ReadInventoryCsvAsync(file, skuColumn, titleColumn, qtyColumn, ct);
+        if (rowsError is not null)
+        {
+            return rowsError;
+        }
+
+        var (orderInfos, openLines, openOrderCount) = await GetOpenOrderDemandAsync(ct);
+
+        var result = ShippableOrdersReport.Build(rows!, orderInfos, openLines);
+
+        return Ok(new ShippableOrdersResponseModel
+        {
+            Rows = ToRowModels(result.Items),
+            UnmatchedDemand = ToUnmatchedModels(result.UnmatchedDemand),
+            Orders = result.Orders.Select(o => new ShippableOrderRowModel
+            {
+                OrderId = o.OrderId,
+                OrderNumber = o.OrderNumber,
+                Marketplace = o.Marketplace,
+                IsPriority = o.IsPriority,
+                LineCount = o.LineCount,
+                CoveredLineCount = o.CoveredLineCount,
+                Status = o.Status,
+                ShortLines = o.ShortLines.Select(s => new ShippableOrderShortLineModel
+                {
+                    Title = s.Title,
+                    Sku = s.Sku,
+                    OrderedQty = s.OrderedQty,
+                    AvailableQty = s.AvailableQty
+                }).ToList()
+            }).ToList(),
+            GeneratedAt = DateTime.UtcNow,
+            OpenOrderCount = openOrderCount,
+            CsvRowCount = rows!.Count,
+            MatchedRowCount = result.Items.Count,
+            OrdersShippable = result.OrdersShippable,
+            OrdersPartial = result.OrdersPartial,
+            OrdersNeedsCheck = result.OrdersNeedsCheck,
+            UnitsShippable = result.UnitsShippable
+        });
+    }
+
+    // The original, item-centric report: aggregate demand vs. on-hand per SKU, no order
+    // breakdown. See ShippableOrders above for the order-specific counterpart; both share the
+    // same matching engine (InventoryMatching), so their numbers always agree.
     [HttpPost("shippable-items")]
     [RequestSizeLimit(MaxCsvBytes + 1024 * 1024)]
     public async Task<ActionResult<ShippableItemsResponseModel>> ShippableItems(
@@ -36,29 +91,53 @@ public class ReportsController : ControllerBase
         [FromForm] string? qtyColumn,
         CancellationToken ct)
     {
+        var (rows, rowsError) = await ReadInventoryCsvAsync(file, skuColumn, titleColumn, qtyColumn, ct);
+        if (rowsError is not null)
+        {
+            return rowsError;
+        }
+
+        var (_, openLines, openOrderCount) = await GetOpenOrderDemandAsync(ct);
+
+        var result = ShippableItemsReport.Build(rows!, openLines);
+
+        return Ok(new ShippableItemsResponseModel
+        {
+            Rows = ToRowModels(result.Items),
+            UnmatchedDemand = ToUnmatchedModels(result.UnmatchedDemand),
+            GeneratedAt = DateTime.UtcNow,
+            OpenOrderCount = openOrderCount,
+            CsvRowCount = rows!.Count,
+            MatchedRowCount = result.Items.Count,
+            UnitsShippable = result.UnitsShippable
+        });
+    }
+
+    private async Task<(List<InventoryRow>? Rows, ActionResult? Error)> ReadInventoryCsvAsync(
+        IFormFile? file, string? skuColumn, string? titleColumn, string? qtyColumn, CancellationToken ct)
+    {
         if (file is null || file.Length == 0)
         {
-            return BadRequest(new { message = "No CSV file was uploaded." });
+            return (null, BadRequest(new { message = "No CSV file was uploaded." }));
         }
 
         if (file.Length > MaxCsvBytes)
         {
-            return BadRequest(new { message = "The CSV file exceeds 25 MB." });
+            return (null, BadRequest(new { message = "The CSV file exceeds 25 MB." }));
         }
 
         if (!IsCsv(file))
         {
-            return BadRequest(new { message = "Upload a .csv file." });
+            return (null, BadRequest(new { message = "Upload a .csv file." }));
         }
 
         if (string.IsNullOrWhiteSpace(skuColumn)
             || string.IsNullOrWhiteSpace(titleColumn)
             || string.IsNullOrWhiteSpace(qtyColumn))
         {
-            return BadRequest(new { message = "Choose the SKU, product-title, and on-hand-quantity columns." });
+            return (null, BadRequest(new { message = "Choose the SKU, product-title, and on-hand-quantity columns." }));
         }
 
-        List<InventoryRow> rows;
         try
         {
             await using var stream = file.OpenReadStream();
@@ -69,22 +148,27 @@ public class ReportsController : ControllerBase
             var read = await stream.ReadAsync(head, ct);
             if (Array.IndexOf(head, (byte)0, 0, read) >= 0)
             {
-                return BadRequest(new { message = "That doesn't look like a text CSV file." });
+                return (null, BadRequest(new { message = "That doesn't look like a text CSV file." }));
             }
 
             stream.Position = 0;
-            rows = InventoryCsv.ReadRows(stream, skuColumn, titleColumn, qtyColumn, MaxCsvRows);
+            var rows = InventoryCsv.ReadRows(stream, skuColumn, titleColumn, qtyColumn, MaxCsvRows);
+            return (rows, null);
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(new { message = ex.Message });
+            return (null, BadRequest(new { message = ex.Message }));
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to read the inventory CSV.");
-            return BadRequest(new { message = "The CSV could not be read." });
+            return (null, BadRequest(new { message = "The CSV could not be read." }));
         }
+    }
 
+    private async Task<(List<OpenOrderInfo> Orders, List<OpenOrderLine> Lines, int OpenOrderCount)> GetOpenOrderDemandAsync(
+        CancellationToken ct)
+    {
         var openOrders = await _db.Orders
             .Where(o => o.Status == OrderStatus.Open)
             .Select(o => new
@@ -110,55 +194,29 @@ public class ReportsController : ControllerBase
             .SelectMany(o => o.Lines.Select(li => new OpenOrderLine(o.Id, li.Sku, li.Title, li.Quantity)))
             .ToList();
 
-        var result = ShippableItemsReport.Build(rows, orderInfos, openLines);
-
-        return Ok(new ShippableItemsResponseModel
-        {
-            Rows = result.Items.Select(i => new ShippableItemsRowModel
-            {
-                Title = i.Title,
-                Sku = i.Sku,
-                OrderedQty = i.OrderedQty,
-                OnHandQty = i.OnHandQty,
-                ShippableQty = i.ShippableQty,
-                ShortQty = i.ShortQty,
-                Coverage = i.Coverage
-            }).ToList(),
-            UnmatchedDemand = result.UnmatchedDemand.Select(u => new UnmatchedDemandRowModel
-            {
-                Sku = u.Sku,
-                Title = u.Title,
-                OrderedQty = u.OrderedQty,
-                OrderCount = u.OrderCount
-            }).ToList(),
-            Orders = result.Orders.Select(o => new ShippableOrderRowModel
-            {
-                OrderId = o.OrderId,
-                OrderNumber = o.OrderNumber,
-                Marketplace = o.Marketplace,
-                IsPriority = o.IsPriority,
-                LineCount = o.LineCount,
-                CoveredLineCount = o.CoveredLineCount,
-                Status = o.Status,
-                ShortLines = o.ShortLines.Select(s => new ShippableOrderShortLineModel
-                {
-                    Title = s.Title,
-                    Sku = s.Sku,
-                    OrderedQty = s.OrderedQty,
-                    AvailableQty = s.AvailableQty
-                }).ToList()
-            }).ToList(),
-            GeneratedAt = DateTime.UtcNow,
-            OpenOrderCount = openOrders.Count,
-            CsvRowCount = rows.Count,
-            MatchedRowCount = result.Items.Count,
-            OrdersShippable = result.OrdersShippable,
-            OrdersPartial = result.OrdersPartial,
-            OrdersBlocked = result.OrdersBlocked,
-            OrdersNeedsCheck = result.OrdersNeedsCheck,
-            UnitsShippable = result.UnitsShippable
-        });
+        return (orderInfos, openLines, openOrders.Count);
     }
+
+    private static List<ShippableItemsRowModel> ToRowModels(IReadOnlyList<ShippableItem> items) =>
+        items.Select(i => new ShippableItemsRowModel
+        {
+            Title = i.Title,
+            Sku = i.Sku,
+            OrderedQty = i.OrderedQty,
+            OnHandQty = i.OnHandQty,
+            ShippableQty = i.ShippableQty,
+            ShortQty = i.ShortQty,
+            Coverage = i.Coverage
+        }).ToList();
+
+    private static List<UnmatchedDemandRowModel> ToUnmatchedModels(IReadOnlyList<UnmatchedDemand> unmatched) =>
+        unmatched.Select(u => new UnmatchedDemandRowModel
+        {
+            Sku = u.Sku,
+            Title = u.Title,
+            OrderedQty = u.OrderedQty,
+            OrderCount = u.OrderCount
+        }).ToList();
 
     private static bool IsCsv(IFormFile file) =>
         file.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)

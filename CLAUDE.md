@@ -161,13 +161,21 @@ list per `InventoryKind` (`InStock` / `PurchaseOrder`), replaced (not appended) 
 storage stays flat (~1–2 MB/kind). `InventoryUpload` is the header (filename / row count /
 uploader); `InventoryItem` rows are indexed `(Kind, Sku)` for the badge lookup.
 
-**Shippable Items report** (`Controllers/ReportsController.cs`, `api/reports/shippable-items`):
-multipart CSV upload + `skuColumn`/`titleColumn`/`qtyColumn` form fields (UI maps them),
-cross-references against open-order line items, returns a JSON preview (UI builds the download
-CSV). `Services/ShippableItemsReport.cs` is the pure algorithm (port of the old
-`InventoryCheckWorker.js`: case-insensitive SKU-or-title match, `-<digit>` variant skip,
-blank on-hand → 0); `Services/InventoryCsv.cs` is the CsvHelper wrapper. Synchronous, in-memory,
-with no worker thread / polling / temp files.
+**Shippable reports** (`Controllers/ReportsController.cs`) — two reports, one shared matching
+engine. Both take the same multipart CSV upload + `skuColumn`/`titleColumn`/`qtyColumn` form
+fields (UI maps them) and return a JSON preview (UI builds the download CSV); both are
+synchronous, in-memory, no worker thread / polling / temp files. `Services/InventoryMatching.cs`
+holds the shared algorithm (case-insensitive SKU match with a title-substring fallback,
+`-<digit>` variant skip, blank on-hand → 0, no double-counted demand) — this is the
+corrected successor to the old DigitalBox's `InventoryCheckWorker.js`, which both reports below
+build on so their per-item numbers always agree.
+- **`api/reports/shippable-orders`** (`Services/ShippableOrdersReport.cs`): cross-references
+  against open-order line items and additionally allocates matched stock **per order** (queue
+  order: priority, then oldest), producing both item-level rows and a per-order
+  Shippable/Partial/Blocked/NeedsCheck breakdown. UI button "Shippable Orders".
+- **`api/reports/shippable-items`** (`Services/ShippableItemsReport.cs`): the original,
+  item-centric report restored alongside the order-centric one above — aggregate demand vs.
+  on-hand per SKU only, no order breakdown at all. UI button "Shippable Items".
 
 **CORS** is a named policy; origin from `Cors:AllowedOrigin` (env `Cors__AllowedOrigin`),
 falls back to the Vite dev origin `http://localhost:5183`.
