@@ -23,4 +23,5 @@ dotnet run                                      # http://localhost:5180 (Swagger
 Sign in with the admin account from step 3. That admin adds everyone else (and resets
 passwords) from the **Users** screen in the UI; new passwords are generated and shown once.
 
-See [CLAUDE.md](CLAUDE.md) for architecture and deployment details.
+See [AGENTS.md](AGENTS.md) for architecture and deployment details (any AI coding agent should
+start there; Claude Code loads it automatically via `CLAUDE.md`).
