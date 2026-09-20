@@ -478,12 +478,22 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
                 continue;
             }
 
-            if (TableEndRegex().IsMatch(row.Text))
+            var priceIndex = row.Tokens.FindIndex(t => PriceTokenRegex().IsMatch(t.Text));
+            var afterPrice = priceIndex >= 0 ? row.Tokens.Skip(priceIndex + 1).ToList() : null;
+            var quantity = afterPrice
+                ?.Select(t => int.TryParse(t.Text, out var n) ? n : (int?)null)
+                .FirstOrDefault(n => n is > 0 and < 100_000);
+
+            // A genuine item row in this table always carries a quantity after its price; a
+            // totals/footer row ("Subtotal $45.00", "Order Total") never does. Only check rows
+            // without that item shape against the footer keywords, so an item whose own title
+            // happens to contain one of those words (e.g. "Total Mitochondria", "Total Heart")
+            // isn't mistaken for the table's footer and silently dropped along with every item
+            // after it.
+            if (quantity is null && TableEndRegex().IsMatch(row.Text))
             {
                 break;
             }
-
-            var priceIndex = row.Tokens.FindIndex(t => PriceTokenRegex().IsMatch(t.Text));
 
             if (priceIndex < 0)
             {
@@ -499,7 +509,6 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
             }
 
             var beforePrice = row.Tokens.Take(priceIndex).Select(t => t.Text).ToList();
-            var afterPrice = row.Tokens.Skip(priceIndex + 1).ToList();
 
             string? sku = null;
             if (beforePrice.Count > 0 && SkuTokenRegex().IsMatch(beforePrice[0]))
@@ -508,17 +517,13 @@ public partial class PdfPigPackingSlipParser : IPackingSlipParser
                 beforePrice.RemoveAt(0);
             }
 
-            var quantity = afterPrice
-                .Select(t => int.TryParse(t.Text, out var n) ? n : (int?)null)
-                .FirstOrDefault(n => n is > 0 and < 100_000) ?? 1;
-
             var title = CleanTitle(string.Join(' ', beforePrice));
             if (title.Length == 0)
             {
                 title = sku ?? "(item)";
             }
 
-            items.Add(new ParsedLineItem(title, quantity, sku));
+            items.Add(new ParsedLineItem(title, quantity ?? 1, sku));
         }
 
         return items;
